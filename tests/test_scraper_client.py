@@ -61,4 +61,4 @@ def test_scraper_client_maps_worker_failure():
 
     with pytest.raises(UpstreamError) as error:
         asyncio.run(run())
-    assert error.value.code == "scraper_worker_rejected"
+    assert error.value.code == "blocked_or_invalid_url"

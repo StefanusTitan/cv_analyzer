@@ -15,6 +15,7 @@ class WebScraper:
         self.browser = browser
         self.settings = settings
         self.semaphore = asyncio.Semaphore(settings.scrape_concurrency)
+        self.proxy_enforced = bool(settings.scrape_proxy_url)
 
     async def _validate_url(self, value: str) -> None:
         parsed = urlsplit(value)
@@ -32,6 +33,11 @@ class WebScraper:
             "localhost.localdomain",
         }:
             raise ValueError("Private and loopback destinations are blocked")
+        # The isolated worker has no direct DNS or internet egress. Squid resolves
+        # hostnames and applies destination-IP ACLs, binding validation to the
+        # actual proxied connection and avoiding an application DNS-rebinding gap.
+        if self.proxy_enforced:
+            return
         try:
             addresses = await asyncio.to_thread(
                 socket.getaddrinfo,
@@ -49,6 +55,7 @@ class WebScraper:
             "image",
             "media",
             "font",
+            "stylesheet",
             "texttrack",
             "websocket",
             "manifest",
@@ -63,6 +70,13 @@ class WebScraper:
 
     async def fetch(self, url: str) -> dict:
         await self._validate_url(url)
+        requested = urlsplit(url)
+        if requested.hostname in {"linkedin.com", "www.linkedin.com"}:
+            raise UpstreamError(
+                "The website requires authentication",
+                502,
+                "website_access_restricted",
+            )
         async with self.semaphore:
             context = await self.browser.new_context(
                 accept_downloads=False, service_workers="block"
@@ -77,6 +91,16 @@ class WebScraper:
                         timeout=self.settings.scrape_timeout_seconds * 1000,
                     )
                     await self._validate_url(page.url)
+                    final_url = urlsplit(page.url)
+                    if final_url.hostname in {
+                        "linkedin.com",
+                        "www.linkedin.com",
+                    } and final_url.path.startswith(("/authwall", "/login")):
+                        raise UpstreamError(
+                            "The website requires authentication",
+                            502,
+                            "website_access_restricted",
+                        )
                     title = await page.title()
                     description_locator = page.locator('meta[name="description"]')
                     description = None
@@ -89,6 +113,16 @@ class WebScraper:
                     excerpt = " ".join(text.split())[
                         : self.settings.scrape_max_content_chars
                     ]
+                    final_url = urlsplit(page.url)
+                    if final_url.hostname in {
+                        "linkedin.com",
+                        "www.linkedin.com",
+                    } and final_url.path.startswith(("/authwall", "/login")):
+                        raise UpstreamError(
+                            "The website requires authentication",
+                            502,
+                            "website_access_restricted",
+                        )
                     source_id = hashlib.sha256(page.url.encode()).hexdigest()[:16]
                     return {
                         "id": f"web:{source_id}",

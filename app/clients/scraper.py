@@ -35,10 +35,19 @@ class ScraperClient:
                     "The scraping worker is busy", 502, "scraper_worker_busy"
                 )
             if response.status_code >= 400:
+                try:
+                    detail = response.json().get("detail")
+                except (AttributeError, ValueError):
+                    detail = None
+                code = (
+                    detail
+                    if isinstance(detail, str) and detail.replace("_", "").isalnum()
+                    else "scraper_worker_rejected"
+                )
                 raise UpstreamError(
                     "The scraping worker rejected the URL",
                     502,
-                    "scraper_worker_rejected",
+                    code,
                 )
             return Source.model_validate(response.json()).model_dump()
         except UpstreamError:

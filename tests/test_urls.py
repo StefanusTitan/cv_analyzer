@@ -8,6 +8,12 @@ def test_normalize_url_removes_tracking_and_fragments():
     )
 
 
+def test_normalize_url_removes_markdown_fences():
+    assert normalize_url("https://github.com/example/repo`") == (
+        "https://github.com/example/repo"
+    )
+
+
 def test_stable_urls_ignores_invalid_values_and_preserves_order():
     assert stable_urls(
         ["bad", "https://a.test", {"url": "x"}, "https://a.test/"], 10

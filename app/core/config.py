@@ -30,10 +30,10 @@ class Settings(BaseSettings):
     docx_max_uncompressed_bytes: int = Field(default=50_000_000, ge=1)
     docx_max_compression_ratio: int = Field(default=100, ge=1)
 
-    scrape_max_links: int = Field(default=10, ge=0, le=50)
+    scrape_max_links: int = Field(default=6, ge=0, le=50)
     scrape_max_content_chars: int = Field(default=30_000, ge=1)
-    scrape_concurrency: int = Field(default=3, ge=1, le=10)
-    scrape_timeout_seconds: int = Field(default=15, ge=1, le=120)
+    scrape_concurrency: int = Field(default=4, ge=1, le=10)
+    scrape_timeout_seconds: int = Field(default=8, ge=1, le=120)
     llm_timeout_seconds: int = Field(default=90, ge=1, le=300)
     llm_max_output_tokens: int = Field(default=2_500, ge=256, le=16_000)
 

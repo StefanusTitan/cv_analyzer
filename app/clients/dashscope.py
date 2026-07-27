@@ -24,12 +24,18 @@ class LLMClient:
     async def close(self) -> None:
         await self.client.close()
 
-    async def text_completion(self, system: str, user: str) -> str:
+    async def text_completion(
+        self,
+        system: str,
+        user: str,
+        *,
+        max_tokens: int | None = None,
+    ) -> str:
         try:
             response = await self.client.chat.completions.create(
                 model=self.model,
                 temperature=0.1,
-                max_tokens=self.max_output_tokens,
+                max_tokens=max_tokens or self.max_output_tokens,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},

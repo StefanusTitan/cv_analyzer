@@ -13,11 +13,11 @@ class FakeLLM:
     def __init__(self):
         self.calls = 0
 
-    async def text_completion(self, system: str, user: str) -> str:
+    async def text_completion(
+        self, system: str, user: str, *, max_tokens: int | None = None
+    ) -> str:
         self.calls += 1
-        if self.calls == 1:
-            return "Candidate claims practical Python project experience."
-        return "## Verdict\nThe candidate is a moderate fit based on [document:0]."
+        return "The candidate is a moderate fit based on [document:0]."
 
 
 class NoopEnricher:
@@ -99,4 +99,5 @@ def test_analyzer_returns_narrative_and_closes_upload():
     assert result.job_title == "Backend Engineer"
     assert "moderate fit" in result.analysis
     assert result.sources[0].id == "document:0"
+    assert service.llm.calls == 1
     assert upload.file.closed

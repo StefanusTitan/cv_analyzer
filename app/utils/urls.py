@@ -7,7 +7,7 @@ _TRACKING_PARAMS = {"fbclid", "gclid", "mc_cid", "mc_eid"}
 def normalize_url(value: object) -> str | None:
     if not isinstance(value, str):
         return None
-    value = value.strip().rstrip(".,;:!?)]}>")
+    value = value.strip().rstrip(".,;:!?)]}>`*")
     if len(value) > 2_048:
         return None
     try:

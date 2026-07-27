@@ -27,7 +27,9 @@ async def analyze_cv(
         )
     try:
         result = await request.app.state.cv_analyzer.analyze(
-            normalized_job_title, files
+            normalized_job_title,
+            files,
+            request_id=getattr(request.state, "request_id", None),
         )
         return {"message": "CV analyzed successfully", "result": result}
     except AnalysisError as exc:
