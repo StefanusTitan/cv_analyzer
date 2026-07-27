@@ -25,6 +25,15 @@ class NoopEnricher:
         raise AssertionError(f"Unexpected URL enrichment: {url}")
 
 
+class FakeJobPostingClient:
+    async def fetch(self, job_posting_id: str):
+        return SimpleNamespace(
+            id=job_posting_id,
+            title="Backend Engineer",
+            description="Build reliable Python APIs.",
+        )
+
+
 def settings(**overrides):
     values = {
         "cv_max_files": 3,
@@ -48,7 +57,13 @@ def settings(**overrides):
 
 
 def analyzer(**overrides):
-    return CVAnalyzer(settings(**overrides), FakeLLM(), NoopEnricher(), NoopEnricher())
+    return CVAnalyzer(
+        settings(**overrides),
+        FakeLLM(),
+        NoopEnricher(),
+        NoopEnricher(),
+        FakeJobPostingClient(),
+    )
 
 
 def test_source_budget_preserves_all_metadata_and_shares_excerpt_space():
@@ -94,8 +109,10 @@ def test_analyzer_returns_narrative_and_closes_upload():
     upload = UploadFile(filename="candidate.pdf", file=io.BytesIO(data))
     service = analyzer()
 
-    result = asyncio.run(service.analyze("Backend Engineer", [upload]))
+    job_posting_id = "32a594ac-9e1b-4a9e-a3be-6e6ca87db8ff"
+    result = asyncio.run(service.analyze(job_posting_id, [upload]))
 
+    assert result.job_posting_id == job_posting_id
     assert result.job_title == "Backend Engineer"
     assert "moderate fit" in result.analysis
     assert result.sources[0].id == "document:0"

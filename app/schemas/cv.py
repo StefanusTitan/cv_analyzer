@@ -10,6 +10,7 @@ class Source(BaseModel):
 
 
 class AnalyzeResult(BaseModel):
+    job_posting_id: str
     job_title: str
     analysis: str = Field(min_length=1)
     sources: list[Source] = Field(default_factory=list)

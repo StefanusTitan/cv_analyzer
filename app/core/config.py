@@ -9,11 +9,12 @@ class Settings(BaseSettings):
 
     dashscope_api_key: str = ""
     dashscope_base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-    dashscope_model: str = "deepseek-v4-flash"
+    dashscope_model: str = "qwen3.7-flash"
     github_access_token: str = ""
     scraper_worker_url: str = "http://scraper_worker:8010"
     scraper_worker_token: str = ""
     scrape_proxy_url: str = ""
+    gateway_api_url: str = "https://apidev-hrms.duluin.com/api"
 
     cv_max_files: int = Field(default=3, ge=1, le=10)
     cv_max_file_size_bytes: int = Field(default=10_485_760, ge=1)
@@ -29,6 +30,7 @@ class Settings(BaseSettings):
     docx_max_entries: int = Field(default=1_000, ge=1)
     docx_max_uncompressed_bytes: int = Field(default=50_000_000, ge=1)
     docx_max_compression_ratio: int = Field(default=100, ge=1)
+    job_description_max_chars: int = Field(default=20_000, ge=1, le=100_000)
 
     scrape_max_links: int = Field(default=6, ge=0, le=50)
     scrape_max_content_chars: int = Field(default=30_000, ge=1)
@@ -45,6 +47,8 @@ class Settings(BaseSettings):
             raise RuntimeError("SCRAPER_WORKER_TOKEN is required")
         if not self.scraper_worker_url.startswith("http://"):
             raise RuntimeError("SCRAPER_WORKER_URL must be an internal HTTP URL")
+        if not self.gateway_api_url.startswith("https://"):
+            raise RuntimeError("GATEWAY_API_URL must use HTTPS")
         if self.cv_max_total_size_bytes < self.cv_max_file_size_bytes:
             raise RuntimeError(
                 "CV_MAX_TOTAL_SIZE_BYTES must be at least CV_MAX_FILE_SIZE_BYTES"

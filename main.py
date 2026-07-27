@@ -9,6 +9,7 @@ from starlette.exceptions import HTTPException
 from app.api.routes.cv import router as cv_router
 from app.clients.dashscope import LLMClient
 from app.clients.github import GithubClient
+from app.clients.hrms import JobPostingClient
 from app.clients.scraper import ScraperClient
 from app.core.config import get_settings
 from app.exceptions.log import LogError
@@ -27,9 +28,10 @@ async def lifespan(app: FastAPI):
     llm = LLMClient(settings)
     try:
         github = GithubClient(http_client, settings.github_access_token)
+        job_postings = JobPostingClient(http_client, settings)
         scraper = ScraperClient(http_client, settings)
         app.state.scraper_client = scraper
-        app.state.cv_analyzer = CVAnalyzer(settings, llm, github, scraper)
+        app.state.cv_analyzer = CVAnalyzer(settings, llm, github, scraper, job_postings)
         yield
     finally:
         await http_client.aclose()
