@@ -9,7 +9,7 @@ class Settings(BaseSettings):
 
     dashscope_api_key: str = ""
     dashscope_base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-    dashscope_model: str = "qwen3.7-flash"
+    dashscope_model: str = "deepseek-v4-flash"
     github_access_token: str = ""
     scraper_worker_url: str = "http://scraper_worker:8010"
     scraper_worker_token: str = ""
@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     scrape_timeout_seconds: int = Field(default=8, ge=1, le=120)
     llm_timeout_seconds: int = Field(default=90, ge=1, le=300)
     llm_max_output_tokens: int = Field(default=2_500, ge=256, le=16_000)
+    llm_enable_thinking: bool = False
 
     def validate_runtime(self) -> None:
         if not self.dashscope_api_key:

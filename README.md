@@ -22,7 +22,7 @@ The project includes `PyMuPDF` for PDF processing and the OpenAI SDK. The
 Set application options in the appropriate file under `environment/`, then run
 with that file loaded locally. Docker Compose uses `environment/.env.staging`.
 
-CV analysis configuration is read from environment variables. The required values are `DASHSCOPE_API_KEY` and optionally `GITHUB_ACCESS_TOKEN`; the default DashScope endpoint is `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` with model `qwen3.7-flash`. The API accepts PDF and DOCX uploads at `POST /cv/analyze` as multipart fields `job_title` and `files`, and returns a narrative hiring assessment with trusted evidence sources and warnings.
+CV analysis configuration is read from environment variables. The required values are `DASHSCOPE_API_KEY` and optionally `GITHUB_ACCESS_TOKEN`; the default DashScope endpoint is `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` with model `deepseek-v4-flash`. The API accepts PDF and DOCX uploads at `POST /cv/analyze` as multipart fields `job_title` and `files`, and returns a narrative hiring assessment with trusted evidence sources and warnings.
 
 Set the reverse proxy or API gateway request-body limit at or below `REQUEST_MAX_SIZE_BYTES` (25 MB by default).
 

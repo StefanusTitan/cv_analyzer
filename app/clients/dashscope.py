@@ -20,6 +20,7 @@ class LLMClient:
         )
         self.model = settings.dashscope_model
         self.max_output_tokens = settings.llm_max_output_tokens
+        self.enable_thinking = settings.llm_enable_thinking
 
     async def close(self) -> None:
         await self.client.close()
@@ -36,6 +37,7 @@ class LLMClient:
                 model=self.model,
                 temperature=0.1,
                 max_tokens=max_tokens or self.max_output_tokens,
+                extra_body={"enable_thinking": self.enable_thinking},
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
