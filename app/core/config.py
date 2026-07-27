@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     dashscope_base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
     dashscope_model: str = "qwen3.7-flash"
     github_access_token: str = ""
+    scraper_worker_url: str = "http://scraper_worker:8010"
+    scraper_worker_token: str = ""
+    scrape_proxy_url: str = ""
 
     cv_max_files: int = Field(default=3, ge=1, le=10)
     cv_max_file_size_bytes: int = Field(default=10_485_760, ge=1)
@@ -37,10 +40,20 @@ class Settings(BaseSettings):
     def validate_runtime(self) -> None:
         if not self.dashscope_api_key:
             raise RuntimeError("DASHSCOPE_API_KEY is required")
+        if not self.scraper_worker_token:
+            raise RuntimeError("SCRAPER_WORKER_TOKEN is required")
+        if not self.scraper_worker_url.startswith("http://"):
+            raise RuntimeError("SCRAPER_WORKER_URL must be an internal HTTP URL")
         if self.cv_max_total_size_bytes < self.cv_max_file_size_bytes:
             raise RuntimeError(
                 "CV_MAX_TOTAL_SIZE_BYTES must be at least CV_MAX_FILE_SIZE_BYTES"
             )
+
+    def validate_scraper_worker(self) -> None:
+        if not self.scraper_worker_token:
+            raise RuntimeError("SCRAPER_WORKER_TOKEN is required")
+        if not self.scrape_proxy_url.startswith("http://"):
+            raise RuntimeError("SCRAPE_PROXY_URL is required and must use HTTP")
 
 
 @lru_cache

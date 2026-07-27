@@ -1,28 +1,120 @@
 services:
   cv_analyzer:
     build: .
+    command: >-
+      uvicorn main:app --host 0.0.0.0 --port 8003
+      --timeout-keep-alive 300 --workers 1 --no-access-log
     cpus: 1.5
     mem_limit: 1024m
     mem_reservation: 512m
     pids_limit: 128
-    ports:
-      - "8003:8003"
-    restart: always
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    expose:
+      - "8003"
+    restart: unless-stopped
     env_file:
       - ./environment/.env.staging
     environment:
-      UVICORN_WORKERS: "2"
+      SCRAPER_WORKER_URL: http://scraper_worker:8010
+      LOG_FILE_ENABLED: "false"
       OMP_NUM_THREADS: "1"
       OPENBLAS_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
       NUMEXPR_NUM_THREADS: "1"
-    volumes:
-      - ./main.py:/app/main.py
-      - ./app:/app/app
-      - ./logs:/app/logs
+    depends_on:
+      scraper_worker:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8003/health/ready', timeout=3)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     networks:
       - apigateway_internal_network
+      - scraper_control
+
+  scraper_worker:
+    build: .
+    command: >-
+      uvicorn app.scraper.worker:app --host 0.0.0.0 --port 8010
+      --workers 1 --no-access-log
+    cpus: 1.0
+    mem_limit: 768m
+    mem_reservation: 384m
+    pids_limit: 256
+    shm_size: 256m
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    expose:
+      - "8010"
+    restart: unless-stopped
+    env_file:
+      - ./environment/.env.staging
+    environment:
+      # The shared env file documents all staging secrets, but the isolated
+      # worker must receive only its own service token.
+      DASHSCOPE_API_KEY: ""
+      GITHUB_ACCESS_TOKEN: ""
+      SCRAPE_PROXY_URL: http://egress_proxy:3128
+      LOG_FILE_ENABLED: "false"
+    depends_on:
+      - egress_proxy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8010/health/ready', timeout=3)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - scraper_control
+
+  egress_proxy:
+    image: ubuntu/squid@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029
+    init: true
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 256m
+    pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./deploy/squid/squid.conf:/etc/squid/squid.conf:ro
+    expose:
+      - "3128"
+    networks:
+      - scraper_control
+      - scraper_egress
 
 networks:
   apigateway_internal_network:
     external: true
+  scraper_control:
+    internal: true
+  scraper_egress:
+    driver: bridge

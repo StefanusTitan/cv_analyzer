@@ -31,22 +31,24 @@ class Logger:
         self.max_value_length = self._get_int_env("LOG_MAX_VALUE_LENGTH", 2000)
         self.max_collection_items = self._get_int_env("LOG_MAX_COLLECTION_ITEMS", 30)
         self.pretty_json = self._get_bool_env("LOG_PRETTY_JSON", False)
+        self.file_enabled = self._get_bool_env("LOG_FILE_ENABLED", True)
         self.logger = loguru_logger.patch(self.patching)
-        os.makedirs("logs", exist_ok=True)
         self.logger.remove()
         self.logger.add(
             self._stdout_sink,
             backtrace=False,
             diagnose=False,
         )
-        self.logger.add(
-            self._file_sink_path(),
-            retention="10 days",
-            rotation="00:00",
-            backtrace=False,
-            diagnose=False,
-            format="{extra[output]}",
-        )
+        if self.file_enabled:
+            os.makedirs("logs", exist_ok=True)
+            self.logger.add(
+                self._file_sink_path(),
+                retention="10 days",
+                rotation="00:00",
+                backtrace=False,
+                diagnose=False,
+                format="{extra[output]}",
+            )
 
     def serialize(self, record):
         subset = {

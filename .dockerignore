@@ -17,8 +17,9 @@ __pycache__/
 env/
 venv/
 
-# Runtime data
+# Runtime and test data
 logs/
+tests/
 
 # IDE
 .idea/

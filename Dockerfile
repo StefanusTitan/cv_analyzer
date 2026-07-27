@@ -14,9 +14,14 @@ COPY --from=builder /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN playwright install --with-deps chromium
-COPY . .
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    HOME=/tmp
+RUN playwright install --with-deps chromium \
+    && groupadd --system app \
+    && useradd --system --gid app --home-dir /tmp --no-create-home app \
+    && chmod -R a+rX /ms-playwright
+COPY --chown=app:app . .
+USER app
 
-EXPOSE 8003
-CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port 8003 --timeout-keep-alive 300 --workers ${UVICORN_WORKERS:-1}"]
+EXPOSE 8003 8010
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port 8003 --timeout-keep-alive 300 --workers ${UVICORN_WORKERS:-1} --no-access-log"]
