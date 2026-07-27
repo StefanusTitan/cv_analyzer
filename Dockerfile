@@ -1,97 +1,31 @@
 # syntax=docker/dockerfile:1
 
-# =====================
-# Stage 1: Builder
-# =====================
-FROM python:3.10-slim AS builder
+FROM ghcr.io/astral-sh/uv:0.11.32 AS uv
 
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    cmake \
-    wget \
-    libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
+FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
-RUN pip install --upgrade pip pipenv
-RUN pip install torch --index-url https://download.pytorch.org/whl/cpu
-RUN pip install torchvision --index-url https://download.pytorch.org/whl/cpu
-COPY Pipfile Pipfile.lock ./
+COPY --from=uv /uv /uvx /bin/
 
-# Install dependencies system-wide
-RUN pipenv install --deploy --system
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
 
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-dev
 
-# =====================
-# Stage 2: Runtime
-# =====================
-FROM python:3.10-slim
-
-# ---- System Libraries (IMPORTANT) ----
-RUN apt-get update && apt-get install -y \
-    libgl1 \
-    libglib2.0-0 \
-    libgomp1 \
-    ffmpeg \
-    wget \
-    && rm -rf /var/lib/apt/lists/*
-
-ENV FFMPEG_PATH="/usr/bin/ffmpeg"
-
-# ---- Preload DeepFace Weights ----
-RUN mkdir -p /root/.deepface/weights && \
-    wget https://github.com/serengil/deepface_models/releases/download/v1.0/arcface_weights.h5 \
-        -O /root/.deepface/weights/arcface_weights.h5 && \
-    wget https://github.com/serengil/deepface_models/releases/download/v1.0/retinaface.h5 \
-        -O /root/.deepface/weights/retinaface.h5
+FROM python:3.12-slim
 
 WORKDIR /app
 
-# ---- Copy Python deps from builder ----
-COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
-
-# ---- Pre-download PaddleOCR models ----
-
-
-# ---- Copy Application ----
+COPY --from=builder /app/.venv /app/.venv
 COPY . .
 
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-# =====================
-# Runtime Environment
-# =====================
-# ---- Disable GPU / CUDA ----
-# ===== Paddle / OpenMP Safety =====
-ENV DISABLE_MODEL_SOURCE_CHECK=True
-ENV OMP_NUM_THREADS=1
-ENV MKL_NUM_THREADS=1
-ENV CUDA_VISIBLE_DEVICES=-1
+EXPOSE 8003
 
-# ---- Thread Control ----
-ENV OMP_NUM_THREADS=1
-ENV MKL_NUM_THREADS=1
-ENV OPENBLAS_NUM_THREADS=1
-ENV NUMEXPR_NUM_THREADS=1
-ENV VECLIB_MAXIMUM_THREADS=1
-ENV BLIS_NUM_THREADS=1
-ENV TF_NUM_INTRAOP_THREADS=1
-ENV TF_NUM_INTEROP_THREADS=1
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port 8003 --timeout-keep-alive 300 --workers ${UVICORN_WORKERS:-2}"]
 
-# ---- Paddle Safety ----
-ENV DISABLE_MODEL_SOURCE_CHECK=True
-ENV FLAGS_use_cuda=False
-ENV FLAGS_use_mkldnn=False
-
-# ---- Silence Logs ----
-ENV TF_CPP_MIN_LOG_LEVEL=2
-ENV GLOG_minloglevel=2
-ENV FLAGS_log_level=2
-
-# =====================
-# App
-# =====================
-EXPOSE 8001
-
-CMD ["bash", "-c", "DISABLE_MODEL_SOURCE_CHECK=True uvicorn main:app --host 0.0.0.0 --port 8001 --timeout-keep-alive 300 --workers ${UVICORN_WORKERS:-1}"]

@@ -1,0 +1,26 @@
+[project]
+name = "cv-analyzer"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.140.0",
+    "office-oxide>=0.1.8",
+    "openai>=2.48.0",
+    "pymupdf>=1.28.0",
+    "loguru>=0.7.0",
+    "uvicorn[standard]>=0.30.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.uv]
+package = false
+default-groups = "all"
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"

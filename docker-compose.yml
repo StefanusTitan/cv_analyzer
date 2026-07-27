@@ -1,38 +1,28 @@
-version: "3.8"
-
 services:
-  duluin_ml_kit:
+  cv_analyzer:
     build: .
-    cpus: 0.50
+    cpus: 1.5
     mem_limit: 1024m
     mem_reservation: 512m
     pids_limit: 128
     ports:
-      - "8001:8001"
+      - "8003:8003"
     restart: always
     env_file:
       - ./environment/.env.staging
     environment:
+      UVICORN_WORKERS: "2"
       OMP_NUM_THREADS: "1"
-      MKL_NUM_THREADS: "1"
       OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
       NUMEXPR_NUM_THREADS: "1"
-      VECLIB_MAXIMUM_THREADS: "1"
-      BLIS_NUM_THREADS: "1"
-      TF_NUM_INTRAOP_THREADS: "1"
-      TF_NUM_INTEROP_THREADS: "1"
-      UVICORN_WORKERS: "1"
-      FACE_INFERENCE_QUEUE_SIZE: "32"
-      FACE_INFERENCE_TIMEOUT: "120"
     volumes:
-      - ./face_datasets:/app/face_datasets
+      - ./main.py:/app/main.py
+      - ./app:/app/app
       - ./logs:/app/logs
-      - ./vector_db:/app/vector_db
     networks:
       - apigateway_internal_network
-      - duluin_ml_kit_network
 
 networks:
-  duluin_ml_kit_network:
   apigateway_internal_network:
     external: true

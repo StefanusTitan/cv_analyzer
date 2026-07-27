@@ -137,10 +137,5 @@ test.db
 # Firebase service account configuration
 firebase.json
 
-# Temporary file
-uploads/
+# Temporary and runtime files
 logs/
-dataset/
-faces/
-vector_db/
-datasets/

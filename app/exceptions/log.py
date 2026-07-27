@@ -1,10 +1,11 @@
 import traceback
 
 from fastapi import Request
-from fastapi.exceptions import RequestValidationError, HTTPException
+from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.utils.log import logger
+
 
 class LogError:
     async def request_validation_exception_handler(self, request: Request, exc: RequestValidationError) -> JSONResponse:

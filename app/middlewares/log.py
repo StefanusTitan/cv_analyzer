@@ -1,12 +1,15 @@
-from fastapi import FastAPI, Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.datastructures import FormData, UploadFile
-from app.utils.log import logger
 import json
 import os
 import time
 import uuid
 from urllib.parse import parse_qs
+
+from fastapi import FastAPI, Request, Response
+from starlette.datastructures import FormData, UploadFile
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+
+from app.utils.log import logger
+
 
 class LogMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: FastAPI):
@@ -43,8 +46,8 @@ class LogMiddleware(BaseHTTPMiddleware):
         
         try:
             resp_json = json.loads(response_body.decode("utf-8"))
-        except Exception:
-            resp_json = response_body.decode("utf-8") if response_body else None
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            resp_json = response_body.decode("utf-8", errors="replace") if response_body else None
 
         log_level = "INFO" if response.status_code < 400 else "ERROR"
         message = "Success" if response.status_code < 400 else "Fail"

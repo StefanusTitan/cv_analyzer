@@ -1,13 +1,14 @@
+import json
 import os
 import sys
-import json
 import uuid
-from typing import Any
+from typing import Any, ClassVar
 
 from loguru import logger as loguru_logger
 
+
 class Logger:
-    DEFAULT_SENSITIVE_KEYS = {
+    DEFAULT_SENSITIVE_KEYS: ClassVar[set[str]] = {
         "authorization",
         "password",
         "passwd",
@@ -137,7 +138,7 @@ class Logger:
         if isinstance(value, dict):
             return {
                 item_key: "***masked***"
-                for item_key in value.keys()
+                for item_key in value
             }
 
         if isinstance(value, list):

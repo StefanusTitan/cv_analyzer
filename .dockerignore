@@ -1,30 +1,25 @@
-# Git
+# Git and local metadata
 .git
 .gitignore
+.DS_Store
 
-# Docker
-.dockerignore
-Dockerfile
-
-# Environment
-.env.*
+# Environment and local configuration
 environment/
+.env
 
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
 .Python
+.venv/
 env/
 venv/
+
+# Runtime data
+logs/
 
 # IDE
 .idea/
 .vscode/
-
-# Other
-.DS_Store
-logs/
-faces/
-datasets/

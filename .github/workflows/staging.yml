@@ -31,7 +31,7 @@ jobs:
           host: ${{ secrets.SSH_HOST_DEV }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
-          source: ".,!node_modules,!venv,!.git"
+          source: ".,!node_modules,!venv,!.venv,!.git,!__pycache__,!logs"
           target: "/home/apps/duluin_ml_kit"
           overwrite: true
           rm: true
