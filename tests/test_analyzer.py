@@ -110,7 +110,8 @@ def test_summary_is_display_ready_without_internal_references():
     summary = CVAnalyzer._prepare_summary(analysis)
 
     assert summary == (
-        "Stefanus is a moderate fit. Backend experience should be verified, while "
+        "Stefanus is a moderate fit.\n"
+        "Backend experience should be verified, while "
         "the portfolio is frontend-heavy."
     )
 
