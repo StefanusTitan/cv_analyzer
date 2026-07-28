@@ -62,7 +62,21 @@ For normal development and staging, run the complete isolated stack:
 docker compose up --build
 ```
 
-The analyzer listens on container port `8003` and is exposed only to `apigateway_internal_network`; the scraper worker and proxy publish no host ports. The gateway should call `http://cv_analyzer:8003`.
+The analyzer listens on container port `8003`, joins
+`apigateway_internal_network`, and is published to the host only at
+`127.0.0.1:8003` for local workers. The scraper worker and proxy publish no
+host ports. A containerized gateway should call `http://cv_analyzer:8003`.
+
+For a local employee worker running on the host, Compose publishes the analyzer
+only on `127.0.0.1:8003`. To use the host gateway from the analyzer container,
+set these development-only values:
+
+```text
+GATEWAY_API_URL=http://host.docker.internal:9996/api
+ALLOW_INSECURE_LOCAL_GATEWAY=true
+```
+
+Plain HTTP remains rejected for every non-local gateway host.
 
 For Python-only tests:
 

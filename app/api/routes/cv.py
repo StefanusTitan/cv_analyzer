@@ -1,5 +1,4 @@
 from typing import Annotated
-from uuid import UUID
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
@@ -13,12 +12,17 @@ router = APIRouter(prefix="/cv", tags=["CV"])
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_cv(
     request: Request,
-    job_posting_id: Annotated[UUID, Form(...)],
-    files: Annotated[list[UploadFile], File(...)],
+    # Accepted as a raw string and validated by the JobPostingClient so invalid IDs
+    # produce the stable ``invalid_job_posting_id`` contract code instead of a
+    # framework validation error shape.
+    job_posting_id: Annotated[str, Form(...)],
+    # Optional so a missing ``files`` field surfaces as the ``missing_files``
+    # contract code rather than a framework validation error shape.
+    files: Annotated[list[UploadFile] | None, File()] = None,
 ):
     try:
         result = await request.app.state.cv_analyzer.analyze(
-            str(job_posting_id),
+            job_posting_id,
             files,
             request_id=getattr(request.state, "request_id", None),
         )

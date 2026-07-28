@@ -100,6 +100,21 @@ def test_document_budget_uses_upload_identity_for_duplicate_names():
     assert truncated
 
 
+def test_summary_is_display_ready_without_internal_references():
+    analysis = (
+        "Stefanus is a moderate fit [document:0].\n"
+        "Backend experience should be verified [job_description], while the portfolio "
+        "is frontend-heavy [github:StefanusTitan/lifetime-art]."
+    )
+
+    summary = CVAnalyzer._prepare_summary(analysis)
+
+    assert summary == (
+        "Stefanus is a moderate fit. Backend experience should be verified, while "
+        "the portfolio is frontend-heavy."
+    )
+
+
 def test_analyzer_returns_narrative_and_closes_upload():
     document = pymupdf.open()
     page = document.new_page()
@@ -115,6 +130,7 @@ def test_analyzer_returns_narrative_and_closes_upload():
     assert result.job_posting_id == job_posting_id
     assert result.job_title == "Backend Engineer"
     assert "moderate fit" in result.analysis
+    assert "[document:0]" not in result.analysis
     assert result.sources[0].id == "document:0"
     assert service.llm.calls == 1
     assert upload.file.closed

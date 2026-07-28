@@ -1,4 +1,5 @@
 from functools import lru_cache
+from urllib.parse import urlparse
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -15,6 +16,7 @@ class Settings(BaseSettings):
     scraper_worker_token: str = ""
     scrape_proxy_url: str = ""
     gateway_api_url: str = "https://apidev-hrms.duluin.com/api"
+    allow_insecure_local_gateway: bool = False
 
     cv_max_files: int = Field(default=3, ge=1, le=10)
     cv_max_file_size_bytes: int = Field(default=10_485_760, ge=1)
@@ -47,8 +49,20 @@ class Settings(BaseSettings):
             raise RuntimeError("SCRAPER_WORKER_TOKEN is required")
         if not self.scraper_worker_url.startswith("http://"):
             raise RuntimeError("SCRAPER_WORKER_URL must be an internal HTTP URL")
-        if not self.gateway_api_url.startswith("https://"):
-            raise RuntimeError("GATEWAY_API_URL must use HTTPS")
+        gateway = urlparse(self.gateway_api_url)
+        local_http_gateway = (
+            self.allow_insecure_local_gateway
+            and gateway.scheme == "http"
+            and gateway.hostname
+            in {"localhost", "127.0.0.1", "::1", "host.docker.internal"}
+            and gateway.username is None
+            and gateway.password is None
+        )
+        if gateway.scheme != "https" and not local_http_gateway:
+            raise RuntimeError(
+                "GATEWAY_API_URL must use HTTPS unless an explicitly enabled "
+                "local development host is used"
+            )
         if self.cv_max_total_size_bytes < self.cv_max_file_size_bytes:
             raise RuntimeError(
                 "CV_MAX_TOTAL_SIZE_BYTES must be at least CV_MAX_FILE_SIZE_BYTES"

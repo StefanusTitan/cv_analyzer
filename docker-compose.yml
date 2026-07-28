@@ -16,8 +16,10 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    expose:
-      - "8003"
+    ports:
+      - "127.0.0.1:8003:8003"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     env_file:
       - ./environment/.env.staging
