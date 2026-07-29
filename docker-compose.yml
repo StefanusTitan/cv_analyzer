@@ -24,6 +24,7 @@ services:
     env_file:
       - ./environment/.env.staging
     environment:
+      JOB_POSTING_API_URL: http://host.docker.internal:5555/api/v3/job-posting
       SCRAPER_WORKER_URL: http://scraper_worker:8010
       LOG_FILE_ENABLED: "false"
       OMP_NUM_THREADS: "1"

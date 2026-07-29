@@ -12,11 +12,13 @@ from app.services.cv_analyzer import CVAnalyzer
 class FakeLLM:
     def __init__(self):
         self.calls = 0
+        self.max_tokens = None
 
     async def text_completion(
         self, system: str, user: str, *, max_tokens: int | None = None
     ) -> str:
         self.calls += 1
+        self.max_tokens = max_tokens
         return "The candidate is a moderate fit based on [document:0]."
 
 
@@ -116,6 +118,39 @@ def test_summary_is_display_ready_without_internal_references():
     )
 
 
+def test_summary_normalizes_model_markdown_to_simple_html():
+    analysis = """**Status Kesesuaian:** Sedang
+
+**Kekuatan Utama Kandidat:**
+* **Frontend kuat:** React dan TypeScript
+* Pengalaman *Agile/Scrum*
+
+**Rekomendasi:** Lanjutkan wawancara."""
+
+    summary = CVAnalyzer._prepare_summary(analysis)
+
+    assert summary == (
+        "<p><b>Status Kesesuaian:</b> Sedang</p>"
+        "<p><b>Kekuatan Utama Kandidat:</b></p>"
+        "<ul><li><b>Frontend kuat:</b> React dan TypeScript</li>"
+        "<li>Pengalaman <i>Agile/Scrum</i></li></ul>"
+        "<p><b>Rekomendasi:</b> Lanjutkan wawancara.</p>"
+    )
+    assert "**" not in summary
+
+
+def test_analysis_prompt_requires_html_and_forbids_markdown():
+    prompt = CVAnalyzer._analysis_prompt()
+
+    assert "hanya fragmen HTML" in prompt
+    assert "bukan Markdown" in prompt
+    assert "<p><b>Status Kesesuaian:</b>" in prompt
+    assert "mudah dipahami orang nonteknis" in prompt
+    assert "Jelaskan dampak setiap pengalaman atau keahlian" in prompt
+    assert "<p><b>Rekomendasi untuk HR:</b>" in prompt
+    assert "<p><b>Pertanyaan Wawancara yang Disarankan:</b>" in prompt
+
+
 def test_analyzer_returns_narrative_and_closes_upload():
     document = pymupdf.open()
     page = document.new_page()
@@ -134,4 +169,5 @@ def test_analyzer_returns_narrative_and_closes_upload():
     assert "[document:0]" not in result.analysis
     assert result.sources[0].id == "document:0"
     assert service.llm.calls == 1
+    assert service.llm.max_tokens == 800
     assert upload.file.closed

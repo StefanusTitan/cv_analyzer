@@ -33,7 +33,9 @@ def test_job_posting_client_extracts_title_and_plain_description():
         )
 
     settings = SimpleNamespace(
-        gateway_api_url="https://apidev-hrms.duluin.com/api",
+        job_posting_api_url=(
+            "https://apidev-hrms.duluin.com/api/proxy/v3/employees/job-posting"
+        ),
         job_description_max_chars=20_000,
     )
 

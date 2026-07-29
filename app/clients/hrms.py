@@ -17,7 +17,7 @@ class JobPosting:
 class JobPostingClient:
     def __init__(self, client: httpx.AsyncClient, settings):
         self.client = client
-        self.base_url = settings.gateway_api_url.rstrip("/")
+        self.base_url = settings.job_posting_api_url.rstrip("/")
         self.description_max_chars = settings.job_description_max_chars
 
     async def fetch(self, job_posting_id: str) -> JobPosting:
@@ -30,7 +30,7 @@ class JobPostingClient:
 
         try:
             response = await self.client.get(
-                f"{self.base_url}/proxy/v3/employees/job-posting/{normalized_id}"
+                f"{self.base_url}/{normalized_id}"
             )
             if response.status_code == 404:
                 raise UpstreamError(
