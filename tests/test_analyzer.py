@@ -146,6 +146,8 @@ def test_analysis_prompt_requires_html_and_forbids_markdown():
     assert "bukan Markdown" in prompt
     assert "<p><b>Status Kesesuaian:</b>" in prompt
     assert "mudah dipahami orang nonteknis" in prompt
+    assert "maksimal 120 kata" in prompt
+    assert "Tepat dua poin" in prompt
     assert "Jelaskan dampak setiap pengalaman atau keahlian" in prompt
     assert "<p><b>Rekomendasi untuk HR:</b>" in prompt
     assert "<p><b>Pertanyaan Wawancara yang Disarankan:</b>" in prompt
@@ -169,5 +171,5 @@ def test_analyzer_returns_narrative_and_closes_upload():
     assert "[document:0]" not in result.analysis
     assert result.sources[0].id == "document:0"
     assert service.llm.calls == 1
-    assert service.llm.max_tokens == 800
+    assert service.llm.max_tokens == 500
     assert upload.file.closed
