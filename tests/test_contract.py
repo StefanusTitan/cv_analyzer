@@ -16,6 +16,7 @@ import asyncio
 import io
 import json
 import os
+import re
 import tempfile
 from types import SimpleNamespace
 from typing import Any
@@ -57,6 +58,7 @@ def make_settings(**overrides: Any) -> SimpleNamespace:
         "docx_max_compression_ratio": 100,
         "scrape_max_links": 0,
         "scrape_concurrency": 2,
+        "enrichment_budget_seconds": 8.0,
         "request_max_size_bytes": 25_000_000,
         "job_posting_api_url": "https://gateway.test/job-posting",
         "job_description_max_chars": 20_000,
@@ -81,8 +83,8 @@ class FakeLLM:
             raise self.error
         if self.response is not None:
             return self.response
-        payload = json.loads(user)
-        jid = payload.get("job_posting_id", "unknown")
+        match = re.match(r"JOB POSTING ID: ([^\n]+)", user)
+        jid = match.group(1) if match else "unknown"
         return f"The candidate is a moderate fit for {jid} based on [document:0]."
 
 

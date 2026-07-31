@@ -31,12 +31,41 @@ def _pdf_page(page):
     return text
 
 
-def _extract_pdf_sync(path: str, workers: int, max_pages: int) -> str:
+def _extract_pdf_sync(
+    path: str,
+    workers: int,
+    max_pages: int,
+    max_chars: int | None = None,
+) -> str:
     count = _pdf_page_count(path)
     if count > max_pages:
         raise UploadError(
             f"PDF exceeds maximum page count ({max_pages})", 422, "page_limit_exceeded"
         )
+    # Prefer sequential extraction when a char budget is set so we can stop once
+    # enough text is collected instead of paying for every remaining page.
+    use_early_stop = max_chars is not None and max_chars > 0
+    if use_early_stop or count <= 1 or workers <= 1:
+        try:
+            with pymupdf.open(path) as document:
+                parts: list[str] = []
+                used = 0
+                limit = min(len(document), max_pages)
+                for index in range(limit):
+                    chunk = f"[page {index + 1}]\n{_pdf_page(document[index])}"
+                    separator = 2 if parts else 0
+                    parts.append(chunk)
+                    used += len(chunk) + separator
+                    if use_early_stop and used >= max_chars:
+                        break
+                return "\n\n".join(parts)
+        except UploadError:
+            raise
+        except Exception as exc:
+            raise UploadError(
+                "The PDF could not be extracted", 422, "extraction_failed"
+            ) from exc
+
     method = "mp" if count > 1 and workers > 1 else "single"
     try:
         pages = pymupdf.apply_pages(
@@ -54,20 +83,28 @@ def _extract_pdf_sync(path: str, workers: int, max_pages: int) -> str:
     )
 
 
-def _extract_docx_sync(path: str) -> str:
+def _extract_office_sync(path: str) -> str:
     try:
         with Document.open(path) as document:
             return document.plain_text()
     except (OfficeOxideError, OSError, ValueError) as exc:
         raise UploadError(
-            "The DOCX could not be extracted", 422, "extraction_failed"
+            "The document could not be extracted", 422, "extraction_failed"
         ) from exc
 
 
-async def extract(path: Path, kind: str, workers: int, max_pages: int) -> str:
+async def extract(
+    path: Path,
+    kind: str,
+    workers: int,
+    max_pages: int,
+    max_chars: int | None = None,
+) -> str:
     if kind == "pdf":
-        return await asyncio.to_thread(_extract_pdf_sync, str(path), workers, max_pages)
-    return await asyncio.to_thread(_extract_docx_sync, str(path))
+        return await asyncio.to_thread(
+            _extract_pdf_sync, str(path), workers, max_pages, max_chars
+        )
+    return await asyncio.to_thread(_extract_office_sync, str(path))
 
 
 def _validate_docx_archive(
@@ -100,6 +137,10 @@ def _validate_docx_archive(
         return False
 
 
+def _is_ole2(data: bytes) -> bool:
+    return len(data) >= 8 and data[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+
 def detect_kind(
     name: str,
     data: bytes,
@@ -113,6 +154,12 @@ def detect_kind(
         if data.startswith(b"%PDF-"):
             return "pdf"
         raise UploadError("The uploaded PDF is invalid", 422, "invalid_document")
+    if extension == ".doc":
+        if _is_ole2(data):
+            return "doc"
+        raise UploadError(
+            "The uploaded DOC is invalid", 422, "invalid_document"
+        )
     if extension == ".docx":
         if data[:2] == b"PK" and _validate_docx_archive(
             data,
@@ -124,4 +171,4 @@ def detect_kind(
         raise UploadError(
             "The uploaded DOCX is invalid or unsafe", 422, "invalid_document"
         )
-    raise UploadError("Only PDF and DOCX files are accepted", 415, "unsupported_format")
+    raise UploadError("Only PDF, DOC, and DOCX files are accepted", 415, "unsupported_format")

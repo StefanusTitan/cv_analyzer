@@ -43,6 +43,19 @@ def is_github_url(value: str) -> bool:
         return False
 
 
+def is_skippable_enrichment_url(value: str) -> bool:
+    """Hosts that never yield usable public evidence (auth walls, etc.)."""
+    try:
+        host = (urlsplit(value).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return True
+    if not host:
+        return True
+    return host in {"linkedin.com", "www.linkedin.com"} or host.endswith(
+        ".linkedin.com"
+    )
+
+
 def is_private_ip(host: str) -> bool:
     try:
         address = ipaddress.ip_address(host)

@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import binascii
 import json
@@ -46,10 +47,33 @@ class GithubClient:
                 "GitHub API enrichment failed", 502, "github_unavailable"
             ) from exc
 
+    async def _readme_excerpt(self, owner: str, repo_name: str) -> str:
+        try:
+            readme = await self._get(
+                f"https://api.github.com/repos/{owner}/{repo_name}/readme"
+            )
+        except UpstreamError as exc:
+            if exc.status_code == 404:
+                return ""
+            raise
+        if not isinstance(readme, dict):
+            return ""
+        encoded = readme.get("content", "")
+        if not isinstance(encoded, str) or not encoded:
+            return ""
+        try:
+            return base64.b64decode(encoded).decode("utf-8", errors="replace")[:10_000]
+        except (binascii.Error, ValueError) as exc:
+            raise UpstreamError(
+                "GitHub README could not be decoded", 502, "github_invalid_response"
+            ) from exc
+
     async def _profile_source(self, url: str, owner: str) -> dict:
-        profile = await self._get(f"https://api.github.com/users/{owner}")
-        repositories = await self._get(
-            f"https://api.github.com/users/{owner}/repos?per_page=20&sort=updated"
+        profile, repositories = await asyncio.gather(
+            self._get(f"https://api.github.com/users/{owner}"),
+            self._get(
+                f"https://api.github.com/users/{owner}/repos?per_page=20&sort=updated"
+            ),
         )
         if not isinstance(profile, dict) or not isinstance(repositories, list):
             raise UpstreamError(
@@ -105,33 +129,15 @@ class GithubClient:
             return await self._profile_source(url, parts[0])
 
         owner, repo_name = parts[0], parts[1]
-        repo = await self._get(f"https://api.github.com/repos/{owner}/{repo_name}")
-        languages = await self._get(
-            f"https://api.github.com/repos/{owner}/{repo_name}/languages"
+        repo, languages, readme_excerpt = await asyncio.gather(
+            self._get(f"https://api.github.com/repos/{owner}/{repo_name}"),
+            self._get(f"https://api.github.com/repos/{owner}/{repo_name}/languages"),
+            self._readme_excerpt(owner, repo_name),
         )
         if not isinstance(repo, dict) or not isinstance(languages, dict):
             raise UpstreamError(
                 "GitHub returned an unexpected response", 502, "github_invalid_response"
             )
-
-        readme_excerpt = ""
-        try:
-            readme = await self._get(
-                f"https://api.github.com/repos/{owner}/{repo_name}/readme"
-            )
-            if isinstance(readme, dict):
-                encoded = readme.get("content", "")
-                if isinstance(encoded, str):
-                    readme_excerpt = base64.b64decode(encoded).decode(
-                        "utf-8", errors="replace"
-                    )[:10_000]
-        except UpstreamError as exc:
-            if exc.status_code != 404:
-                raise
-        except (binascii.Error, ValueError) as exc:
-            raise UpstreamError(
-                "GitHub README could not be decoded", 502, "github_invalid_response"
-            ) from exc
 
         license_data = repo.get("license")
         topics = repo.get("topics")

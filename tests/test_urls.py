@@ -1,4 +1,10 @@
-from app.utils.urls import is_github_url, is_private_ip, normalize_url, stable_urls
+from app.utils.urls import (
+    is_github_url,
+    is_private_ip,
+    is_skippable_enrichment_url,
+    normalize_url,
+    stable_urls,
+)
 
 
 def test_normalize_url_removes_tracking_and_fragments():
@@ -32,3 +38,11 @@ def test_private_ip_detection():
 def test_github_hostname_is_exact():
     assert is_github_url("https://github.com/user")
     assert not is_github_url("https://github.com.example.test/user")
+
+
+def test_linkedin_urls_are_skipped_for_enrichment():
+    assert is_skippable_enrichment_url("https://www.linkedin.com/in/someone")
+    assert is_skippable_enrichment_url("https://linkedin.com/in/someone")
+    assert is_skippable_enrichment_url("https://m.linkedin.com/in/someone")
+    assert not is_skippable_enrichment_url("https://example.com/cv")
+    assert not is_skippable_enrichment_url("https://github.com/user")

@@ -53,6 +53,7 @@ def settings(**overrides):
         "docx_max_compression_ratio": 100,
         "scrape_max_links": 10,
         "scrape_concurrency": 2,
+        "enrichment_budget_seconds": 8.0,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -146,8 +147,8 @@ def test_analysis_prompt_requires_html_and_forbids_markdown():
     assert "bukan Markdown" in prompt
     assert "<p><b>Status Kesesuaian:</b>" in prompt
     assert "mudah dipahami orang nonteknis" in prompt
-    assert "maksimal 120 kata" in prompt
-    assert "Tepat dua poin" in prompt
+    assert "maksimal 200 kata" in prompt
+    assert "Dua sampai tiga poin" in prompt
     assert "Jelaskan dampak setiap pengalaman atau keahlian" in prompt
     assert "<p><b>Rekomendasi untuk HR:</b>" in prompt
     assert "<p><b>Pertanyaan Wawancara yang Disarankan:</b>" in prompt
@@ -171,5 +172,107 @@ def test_analyzer_returns_narrative_and_closes_upload():
     assert "[document:0]" not in result.analysis
     assert result.sources[0].id == "document:0"
     assert service.llm.calls == 1
-    assert service.llm.max_tokens == 500
+    assert service.llm.max_tokens == 1200
     assert upload.file.closed
+
+
+def test_enrichment_budget_keeps_finished_sources_and_continues():
+    class SlowScraper:
+        def __init__(self):
+            self.started = 0
+
+        async def fetch(self, url: str):
+            self.started += 1
+            if "fast" in url:
+                return {
+                    "id": "web:fast",
+                    "url": url,
+                    "type": "website",
+                    "title": "Fast",
+                    "excerpt": "ok",
+                }
+            await asyncio.sleep(2)
+            return {
+                "id": "web:slow",
+                "url": url,
+                "type": "website",
+                "title": "Slow",
+                "excerpt": "late",
+            }
+
+    class CapturingLLM(FakeLLM):
+        def __init__(self):
+            super().__init__()
+            self.user_prompt = ""
+
+        async def text_completion(
+            self, system: str, user: str, *, max_tokens: int | None = None
+        ) -> str:
+            self.user_prompt = user
+            return await super().text_completion(
+                system, user, max_tokens=max_tokens
+            )
+
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_text(
+        (72, 72),
+        "See https://fast.example.test/profile and https://slow.example.test/blog",
+    )
+    data = document.tobytes()
+    document.close()
+    upload = UploadFile(filename="links.pdf", file=io.BytesIO(data))
+
+    scraper = SlowScraper()
+    llm = CapturingLLM()
+    service = CVAnalyzer(
+        settings(enrichment_budget_seconds=0.3, scrape_max_links=10),
+        llm,
+        NoopEnricher(),
+        scraper,
+        FakeJobPostingClient(),
+    )
+
+    result = asyncio.run(
+        service.analyze("32a594ac-9e1b-4a9e-a3be-6e6ca87db8ff", [upload])
+    )
+
+    assert service.llm.calls == 1
+    assert any("time budget" in warning for warning in result.warnings)
+    assert any("enrichment_budget_exceeded" in warning for warning in result.warnings)
+    assert "web:fast" in {source.id for source in result.sources}
+    assert "web:slow" not in {source.id for source in result.sources}
+    assert "Fast" in llm.user_prompt or "fast.example.test" in llm.user_prompt
+
+
+def test_linkedin_urls_are_not_sent_to_scraper():
+    class RecordingScraper:
+        def __init__(self):
+            self.urls: list[str] = []
+
+        async def fetch(self, url: str):
+            self.urls.append(url)
+            raise AssertionError("LinkedIn should be skipped before scrape")
+
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_text((72, 72), "Profile https://www.linkedin.com/in/candidate")
+    data = document.tobytes()
+    document.close()
+    upload = UploadFile(filename="li.pdf", file=io.BytesIO(data))
+    scraper = RecordingScraper()
+    service = CVAnalyzer(
+        settings(scrape_max_links=5),
+        FakeLLM(),
+        NoopEnricher(),
+        scraper,
+        FakeJobPostingClient(),
+    )
+
+    result = asyncio.run(
+        service.analyze("32a594ac-9e1b-4a9e-a3be-6e6ca87db8ff", [upload])
+    )
+
+    assert scraper.urls == []
+    assert any("website_access_restricted" in warning for warning in result.warnings)
+    assert service.llm.calls == 1
