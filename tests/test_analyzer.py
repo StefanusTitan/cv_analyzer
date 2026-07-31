@@ -3,8 +3,8 @@ import io
 import json
 from types import SimpleNamespace
 
-import pymupdf
 from fastapi import UploadFile
+from pdf_oxide import Pdf
 
 from app.services.cv_analyzer import CVAnalyzer
 
@@ -155,11 +155,7 @@ def test_analysis_prompt_requires_html_and_forbids_markdown():
 
 
 def test_analyzer_returns_narrative_and_closes_upload():
-    document = pymupdf.open()
-    page = document.new_page()
-    page.insert_text((72, 72), "Candidate built a production Python API")
-    data = document.tobytes()
-    document.close()
+    data = Pdf.from_text("Candidate built a production Python API").to_bytes()
     upload = UploadFile(filename="candidate.pdf", file=io.BytesIO(data))
     service = analyzer()
 
@@ -213,14 +209,9 @@ def test_enrichment_budget_keeps_finished_sources_and_continues():
                 system, user, max_tokens=max_tokens
             )
 
-    document = pymupdf.open()
-    page = document.new_page()
-    page.insert_text(
-        (72, 72),
-        "See https://fast.example.test/profile and https://slow.example.test/blog",
-    )
-    data = document.tobytes()
-    document.close()
+    data = Pdf.from_text(
+        "See https://fast.example.test/profile and https://slow.example.test/blog"
+    ).to_bytes()
     upload = UploadFile(filename="links.pdf", file=io.BytesIO(data))
 
     scraper = SlowScraper()
@@ -254,11 +245,9 @@ def test_linkedin_urls_are_not_sent_to_scraper():
             self.urls.append(url)
             raise AssertionError("LinkedIn should be skipped before scrape")
 
-    document = pymupdf.open()
-    page = document.new_page()
-    page.insert_text((72, 72), "Profile https://www.linkedin.com/in/candidate")
-    data = document.tobytes()
-    document.close()
+    data = Pdf.from_text(
+        "Profile https://www.linkedin.com/in/candidate"
+    ).to_bytes()
     upload = UploadFile(filename="li.pdf", file=io.BytesIO(data))
     scraper = RecordingScraper()
     service = CVAnalyzer(

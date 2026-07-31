@@ -13,7 +13,7 @@ Create the Python 3.12 virtual environment and install the locked dependencies:
 uv sync --python 3.12
 ```
 
-The project includes `PyMuPDF` for PDF processing and the OpenAI SDK. The
+The project includes `pdf-oxide` for PDF processing and the OpenAI SDK. The
 `uv sync` command installs the dependencies listed in `pyproject.toml` and uses
 `uv.lock` for reproducible installs.
 

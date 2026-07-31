@@ -3,27 +3,29 @@ import io
 import zipfile
 from pathlib import Path
 
-import pymupdf
 from office_oxide import Document, OfficeOxideError
+from pdf_oxide import PdfDocument
 
 from app.core.errors import UploadError
 
 
 def _pdf_page_count(path: str) -> int:
     try:
-        with pymupdf.open(path) as document:
-            return len(document)
+        with PdfDocument(path) as document:
+            return document.page_count()
     except Exception as exc:
         raise UploadError(
             "The PDF is corrupt, encrypted, or unreadable", 422, "invalid_document"
         ) from exc
 
 
-def _pdf_page(page):
-    text = page.get_text("text", sort=True)
+def _pdf_page(document: PdfDocument, index: int) -> str:
+    text = document.extract_text(index)
     links = []
-    for link in page.get_links():
-        uri = link.get("uri")
+    for annotation in document.get_annotations(index):
+        if annotation.get("subtype") != "Link":
+            continue
+        uri = annotation.get("action_uri")
         if uri and uri not in links:
             links.append(uri)
     if links:
@@ -45,42 +47,25 @@ def _extract_pdf_sync(
     # Prefer sequential extraction when a char budget is set so we can stop once
     # enough text is collected instead of paying for every remaining page.
     use_early_stop = max_chars is not None and max_chars > 0
-    if use_early_stop or count <= 1 or workers <= 1:
-        try:
-            with pymupdf.open(path) as document:
-                parts: list[str] = []
-                used = 0
-                limit = min(len(document), max_pages)
-                for index in range(limit):
-                    chunk = f"[page {index + 1}]\n{_pdf_page(document[index])}"
-                    separator = 2 if parts else 0
-                    parts.append(chunk)
-                    used += len(chunk) + separator
-                    if use_early_stop and used >= max_chars:
-                        break
-                return "\n\n".join(parts)
-        except UploadError:
-            raise
-        except Exception as exc:
-            raise UploadError(
-                "The PDF could not be extracted", 422, "extraction_failed"
-            ) from exc
-
-    method = "mp" if count > 1 and workers > 1 else "single"
     try:
-        pages = pymupdf.apply_pages(
-            path,
-            _pdf_page,
-            method=method,
-            concurrency=min(workers, count),
-        )
+        with PdfDocument(path) as document:
+            parts: list[str] = []
+            used = 0
+            limit = min(document.page_count(), max_pages)
+            for index in range(limit):
+                chunk = f"[page {index + 1}]\n{_pdf_page(document, index)}"
+                separator = 2 if parts else 0
+                parts.append(chunk)
+                used += len(chunk) + separator
+                if use_early_stop and used >= max_chars:
+                    break
+            return "\n\n".join(parts)
+    except UploadError:
+        raise
     except Exception as exc:
         raise UploadError(
             "The PDF could not be extracted", 422, "extraction_failed"
         ) from exc
-    return "\n\n".join(
-        f"[page {index + 1}]\n{page}" for index, page in enumerate(pages)
-    )
 
 
 def _extract_office_sync(path: str) -> str:

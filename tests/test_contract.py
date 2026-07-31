@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import io
-import json
 import os
 import re
 import tempfile
@@ -22,9 +21,9 @@ from types import SimpleNamespace
 from typing import Any
 
 import httpx
-import pymupdf
 from fastapi import FastAPI
 from office_oxide import create_from_markdown
+from pdf_oxide import Pdf
 
 from app.api.routes.cv import router as cv_router
 from app.clients.hrms import JobPostingClient
@@ -152,12 +151,7 @@ def make_analyzer(
 
 
 def make_pdf(text: str = "Candidate built a production Python API.") -> bytes:
-    document = pymupdf.open()
-    page = document.new_page()
-    page.insert_text((72, 72), text)
-    data = document.tobytes()
-    document.close()
-    return data
+    return Pdf.from_text(text).to_bytes()
 
 
 def make_docx(text: str = "Candidate built a production Python API.") -> bytes:
