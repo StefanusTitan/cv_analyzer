@@ -44,7 +44,6 @@ def settings(**overrides):
         "cv_max_pages": 10,
         "cv_max_extracted_chars": 10_000,
         "cv_llm_evidence_chars": 5_000,
-        "cv_response_evidence_chars": 5_000,
         "pdf_extraction_workers": 2,
         "pdf_process_budget": 2,
         "extraction_concurrency": 2,

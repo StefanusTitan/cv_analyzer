@@ -35,7 +35,6 @@ def _pdf_page(document: PdfDocument, index: int) -> str:
 
 def _extract_pdf_sync(
     path: str,
-    workers: int,
     max_pages: int,
     max_chars: int | None = None,
 ) -> str:
@@ -81,13 +80,12 @@ def _extract_office_sync(path: str) -> str:
 async def extract(
     path: Path,
     kind: str,
-    workers: int,
     max_pages: int,
     max_chars: int | None = None,
 ) -> str:
     if kind == "pdf":
         return await asyncio.to_thread(
-            _extract_pdf_sync, str(path), workers, max_pages, max_chars
+            _extract_pdf_sync, str(path), max_pages, max_chars
         )
     return await asyncio.to_thread(_extract_office_sync, str(path))
 

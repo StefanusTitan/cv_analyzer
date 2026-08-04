@@ -48,7 +48,6 @@ def make_settings(**overrides: Any) -> SimpleNamespace:
         "cv_max_pages": 100,
         "cv_max_extracted_chars": 100_000,
         "cv_llm_evidence_chars": 50_000,
-        "cv_response_evidence_chars": 20_000,
         "pdf_extraction_workers": 2,
         "pdf_process_budget": 2,
         "extraction_concurrency": 2,

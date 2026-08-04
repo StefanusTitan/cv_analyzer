@@ -113,16 +113,6 @@ class WebScraper:
                     excerpt = " ".join(text.split())[
                         : self.settings.scrape_max_content_chars
                     ]
-                    final_url = urlsplit(page.url)
-                    if final_url.hostname in {
-                        "linkedin.com",
-                        "www.linkedin.com",
-                    } and final_url.path.startswith(("/authwall", "/login")):
-                        raise UpstreamError(
-                            "The website requires authentication",
-                            502,
-                            "website_access_restricted",
-                        )
                     source_id = hashlib.sha256(page.url.encode()).hexdigest()[:16]
                     return {
                         "id": f"web:{source_id}",

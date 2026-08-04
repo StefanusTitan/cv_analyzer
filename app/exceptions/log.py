@@ -101,11 +101,6 @@ class LogError:
             else request.url.path
         )
         client_ip = request.client.host if request.client else None
-        user_id = (
-            request.state.user.get("user_id")
-            if hasattr(request.state, "user")
-            else None
-        )
 
         logger.bind(
             request_id=self._get_request_id(request),
@@ -117,7 +112,7 @@ class LogError:
             status_code=status_code,
             response_body=None,
             duration_ms=None,
-            user_id=user_id,
+            user_id=None,
             error=error,
         ).log(level, message)
         request.state.response_logged = True

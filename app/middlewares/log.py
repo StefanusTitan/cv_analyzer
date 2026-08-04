@@ -5,7 +5,6 @@ import uuid
 from urllib.parse import parse_qs
 
 from fastapi import FastAPI, Request, Response
-from starlette.datastructures import FormData, UploadFile
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from app.utils.log import logger
@@ -51,9 +50,7 @@ class LogMiddleware(BaseHTTPMiddleware):
                 status_code=response.status_code,
                 response_body={"omitted": True, "reason": "contains_candidate_data"},
                 duration_ms=duration_ms,
-                user_id=request.state.user.get("user_id")
-                if hasattr(request.state, "user")
-                else None,
+                user_id=None,
             ).log(
                 "INFO" if response.status_code < 400 else "ERROR",
                 "Success" if response.status_code < 400 else "Fail",
@@ -80,11 +77,6 @@ class LogMiddleware(BaseHTTPMiddleware):
             if request.query_params
             else request.url.path
         )
-        user_id = (
-            request.state.user.get("user_id")
-            if hasattr(request.state, "user")
-            else None
-        )
         client_ip = request.client.host if request.client else None
         duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
@@ -110,7 +102,7 @@ class LogMiddleware(BaseHTTPMiddleware):
             status_code=response.status_code,
             response_body=resp_json,
             duration_ms=duration_ms,
-            user_id=user_id,
+            user_id=None,
         ).log(log_level, message)
         request.state.response_logged = True
 
@@ -142,10 +134,6 @@ class LogMiddleware(BaseHTTPMiddleware):
                 for key, values in parsed.items()
             }
 
-        if "multipart/form-data" in content_type:
-            form = await request.form()
-            return self._serialize_form_data(form)
-
         if not body:
             return None
 
@@ -162,26 +150,6 @@ class LogMiddleware(BaseHTTPMiddleware):
             return {"type": "http.request", "body": body, "more_body": False}
 
         request._receive = receive
-
-    def _serialize_form_data(self, form: FormData):
-        payload = {}
-        for key, value in form.multi_items():
-            serialized = self._serialize_form_value(value)
-            if key in payload:
-                if not isinstance(payload[key], list):
-                    payload[key] = [payload[key]]
-                payload[key].append(serialized)
-            else:
-                payload[key] = serialized
-        return payload
-
-    def _serialize_form_value(self, value):
-        if isinstance(value, UploadFile):
-            return {
-                "filename": value.filename,
-                "content_type": value.content_type,
-            }
-        return value
 
     def _get_int_env(self, env_name: str, default: int):
         raw_value = os.getenv(env_name)

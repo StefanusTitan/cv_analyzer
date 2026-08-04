@@ -41,7 +41,7 @@ def test_pdf_extraction_stops_once_char_budget_is_met():
         path = Path(handle.name)
         handle.write(data)
     try:
-        text = _extract_pdf_sync(str(path), workers=2, max_pages=100, max_chars=200)
+        text = _extract_pdf_sync(str(path), max_pages=100, max_chars=200)
         assert "PAGE-0" in text
         assert "PAGE-4" not in text
         assert text.count("[page ") < 5

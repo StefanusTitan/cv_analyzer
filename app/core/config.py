@@ -25,7 +25,6 @@ class Settings(BaseSettings):
     cv_max_pages: int = Field(default=100, ge=1)
     cv_max_extracted_chars: int = Field(default=100_000, ge=1)
     cv_llm_evidence_chars: int = Field(default=50_000, ge=1)
-    cv_response_evidence_chars: int = Field(default=20_000, ge=1)
     request_max_size_bytes: int = Field(default=25_000_000, ge=1)
     pdf_extraction_workers: int = Field(default=2, ge=1, le=8)
     pdf_process_budget: int = Field(default=2, ge=1, le=8)

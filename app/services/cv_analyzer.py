@@ -6,7 +6,6 @@ import time
 from pathlib import Path
 
 from fastapi import UploadFile
-from playwright.async_api import Error as PlaywrightError
 
 from app.core.errors import AnalysisError, UploadError
 from app.schemas.cv import AnalyzeResult
@@ -33,11 +32,8 @@ class CVAnalyzer:
         self.scraper = scraper
         self.job_postings = job_postings
         self.extraction_semaphore = asyncio.Semaphore(settings.extraction_concurrency)
-        self.pdf_workers = min(
-            settings.pdf_extraction_workers,
-            settings.pdf_process_budget,
-        )
-        pdf_parallelism = max(1, settings.pdf_process_budget // self.pdf_workers)
+        pdf_workers = min(settings.pdf_extraction_workers, settings.pdf_process_budget)
+        pdf_parallelism = max(1, settings.pdf_process_budget // pdf_workers)
         self.pdf_semaphore = asyncio.Semaphore(pdf_parallelism)
         self.enrichment_semaphore = asyncio.Semaphore(settings.scrape_concurrency)
 
@@ -61,23 +57,13 @@ class CVAnalyzer:
         return b"".join(chunks)
 
     async def _extract_one(self, path: Path, kind: str) -> str:
-        max_chars = self.settings.cv_max_extracted_chars
-        if kind == "pdf":
-            async with self.pdf_semaphore:
-                return await extract(
-                    path,
-                    kind,
-                    self.pdf_workers,
-                    self.settings.cv_max_pages,
-                    max_chars,
-                )
-        async with self.extraction_semaphore:
+        semaphore = self.pdf_semaphore if kind == "pdf" else self.extraction_semaphore
+        async with semaphore:
             return await extract(
                 path,
                 kind,
-                self.settings.pdf_extraction_workers,
                 self.settings.cv_max_pages,
-                max_chars,
+                self.settings.cv_max_extracted_chars,
             )
 
     async def _prepare_documents(
@@ -418,7 +404,7 @@ class CVAnalyzer:
                 return await self.scraper.fetch(url)
         except AnalysisError as exc:
             warnings.append(f"Could not enrich {url}: {exc.code}")
-        except (OSError, ValueError, PlaywrightError) as exc:
+        except (OSError, ValueError) as exc:
             warnings.append(f"Could not enrich {url}: {type(exc).__name__}")
         except asyncio.CancelledError:
             raise
@@ -580,9 +566,7 @@ class CVAnalyzer:
             elif isinstance(value, bool):
                 if value:
                     lines.append(f"{key}: yes")
-            elif isinstance(value, (int, float)) and value:
-                lines.append(f"{key}: {value}")
-            elif isinstance(value, str) and value:
+            elif isinstance(value, (int, float, str)) and value:
                 lines.append(f"{key}: {value}")
         return "\n".join(lines)
 
