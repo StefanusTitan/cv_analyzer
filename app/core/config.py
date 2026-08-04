@@ -9,8 +9,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     dashscope_api_key: str = ""
-    dashscope_base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-    dashscope_model: str = "deepseek-v4-flash"
+    dashscope_base_url: str = "https://dashscope-intl.aliyuncs.com/api/v1"
+    dashscope_model: str = "deepseek-v4-flash-0731"
     github_access_token: str = ""
     scraper_worker_url: str = "http://scraper_worker:8010"
     scraper_worker_token: str = ""
