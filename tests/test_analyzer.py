@@ -146,11 +146,11 @@ def test_analysis_prompt_requires_html_and_forbids_markdown():
     assert "bukan Markdown" in prompt
     assert "<p><b>Status Kesesuaian:</b>" in prompt
     assert "mudah dipahami orang nonteknis" in prompt
-    assert "maksimal 200 kata" in prompt
+    assert "maksimal 300 kata" in prompt
     assert "Dua sampai tiga poin" in prompt
     assert "Jelaskan dampak setiap pengalaman atau keahlian" in prompt
     assert "<p><b>Rekomendasi untuk HR:</b>" in prompt
-    assert "<p><b>Pertanyaan Wawancara yang Disarankan:</b>" in prompt
+    assert "Pertanyaan Wawancara yang Disarankan" not in prompt
     assert "URL lengkap persis seperti yang tersedia" in prompt
     assert "jangan mengarang URL" in prompt
 
