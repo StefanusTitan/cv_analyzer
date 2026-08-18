@@ -18,6 +18,7 @@ from app.middlewares.size_limit import RequestSizeLimitMiddleware
 from app.services.cv_analyzer import CVAnalyzer
 
 CORS_ALLOWED_ORIGINS = ["https://workin-dev.duluin.id"]
+CORS_ALLOW_ORIGIN_REGEX = r"https://[a-z0-9-]+\.workin\.duluin\.(com|id)"
 
 
 @asynccontextmanager
@@ -50,6 +51,7 @@ app.add_middleware(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_origin_regex=CORS_ALLOW_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=[

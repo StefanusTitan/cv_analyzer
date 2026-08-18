@@ -36,7 +36,7 @@ export GITHUB_ACCESS_TOKEN='...'
 export SCRAPER_WORKER_TOKEN="$(openssl rand -hex 32)"
 ```
 
-CORS is intentionally fixed in code to `https://workin-dev.duluin.id`; it is not configurable through environment variables. CORS is enabled only on the analyzer, while the scraper worker remains inaccessible to browsers.
+CORS is intentionally fixed in code: the exact origin `https://workin-dev.duluin.id` plus tenant workin subdomains matching `https://{tenant}.workin.duluin.com` and `https://{tenant}.workin.duluin.id`; it is not configurable through environment variables. CORS is enabled only on the analyzer, while the scraper worker remains inaccessible to browsers.
 
 `X-Forwarded-Host` is accepted as a request header for preflight compatibility, but it is not trusted for CORS or authorization decisions. The gateway should remove any client-supplied value and set it itself. A standards-compliant value is a host such as `workin-dev.duluin.id`, not a complete URL; the browser automatically sends `Origin: https://workin-dev.duluin.id` for CORS validation.
 
