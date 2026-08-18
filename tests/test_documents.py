@@ -28,6 +28,18 @@ def test_detect_docx():
     assert detect_kind("cv.docx", stream.getvalue()) == "docx"
 
 
+def test_detect_doc_ole2():
+    ole2_magic = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+    assert detect_kind("cv.doc", ole2_magic + b"\x00" * 512) == "doc"
+
+
+def test_doc_without_ole2_magic_is_invalid():
+    with pytest.raises(UploadError) as error:
+        detect_kind("cv.doc", b"not an ole2 document")
+    assert error.value.status_code == 422
+    assert error.value.code == "invalid_document"
+
+
 def test_pdf_extraction_stops_once_char_budget_is_met():
     builder = DocumentBuilder()
     for index in range(5):

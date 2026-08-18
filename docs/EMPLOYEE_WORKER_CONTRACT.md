@@ -39,8 +39,10 @@ it fetched from MinIO as `multipart/form-data` file parts.
   (`.docx`) — validated as a safe OOXML zip archive (`[Content_Types].xml` and
   `word/document.xml` present, with bounded entry count, uncompressed size, and
   compression ratio).
+- DOC / `application/msword` (`.doc`) — detected by OLE2/CFB magic bytes
+  (`\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1`), not extension alone.
 
-Any other type is rejected with `415 unsupported_format`. A `.pdf`/`.docx` whose
+Any other type is rejected with `415 unsupported_format`. A `.pdf`/`.docx`/`.doc` whose
 content does not match its extension is rejected with `422 invalid_document`.
 
 ### Size and content limits (defaults; configurable by the analyzer)
