@@ -2,15 +2,15 @@
 
 ## Requirements
 
-- Python 3.12
+- Python 3.14
 - [uv](https://docs.astral.sh/uv/) (Astral's Python package and project manager)
 
 ## Installation
 
-Create the Python 3.12 virtual environment and install the locked dependencies:
+Create the Python 3.14 virtual environment and install the locked dependencies:
 
 ```bash
-uv sync --python 3.12
+uv sync --python 3.14
 ```
 
 The project includes `pdf-oxide` for PDF processing and the OpenAI SDK. The
