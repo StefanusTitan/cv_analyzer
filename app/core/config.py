@@ -56,7 +56,7 @@ class Settings(BaseSettings):
         local_http_api = (
             job_posting_api.scheme == "http"
             and job_posting_api.hostname
-            in {"localhost", "127.0.0.1", "::1", "host.docker.internal"}
+            in {"localhost", "127.0.0.1", "::1", "localhost.employees",}
             and job_posting_api.username is None
             and job_posting_api.password is None
         )
