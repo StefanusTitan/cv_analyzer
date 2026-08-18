@@ -23,13 +23,6 @@ services:
     restart: unless-stopped
     env_file:
       - ./environment/.env.staging
-    environment:
-      SCRAPER_WORKER_URL: http://scraper_worker:8010
-      LOG_FILE_ENABLED: "false"
-      OMP_NUM_THREADS: "1"
-      OPENBLAS_NUM_THREADS: "1"
-      MKL_NUM_THREADS: "1"
-      NUMEXPR_NUM_THREADS: "1"
     depends_on:
       scraper_worker:
         condition: service_healthy
@@ -72,13 +65,6 @@ services:
     restart: unless-stopped
     env_file:
       - ./environment/.env.staging
-    environment:
-      # The shared env file documents all staging secrets, but the isolated
-      # worker must receive only its own service token.
-      DASHSCOPE_API_KEY: ""
-      GITHUB_ACCESS_TOKEN: ""
-      SCRAPE_PROXY_URL: http://egress_proxy:3128
-      LOG_FILE_ENABLED: "false"
     depends_on:
       - egress_proxy
     healthcheck:

@@ -1,7 +1,7 @@
 from http import HTTPStatus
 
 import dashscope
-from dashscope import AioGeneration
+from dashscope import AioMultiModalConversation
 from dashscope.common.error import (
     AuthenticationError,
     InvalidParameter,
@@ -34,14 +34,13 @@ class LLMClient:
         max_tokens: int | None = None,
     ) -> str:
         try:
-            response = await AioGeneration.call(
+            response = await AioMultiModalConversation.call(
                 api_key=self.api_key,
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
+                    {"role": "system", "content": [{"text": system}]},
+                    {"role": "user", "content": [{"text": user}]},
                 ],
-                result_format="message",
                 temperature=0.3,
                 max_tokens=max_tokens or self.max_output_tokens,
                 enable_thinking=self.enable_thinking,
@@ -111,18 +110,23 @@ class LLMClient:
     @staticmethod
     def _extract_content(response) -> str | None:
         output = getattr(response, "output", None)
-        if output is None:
-            return None
         choices = getattr(output, "choices", None) or []
         if not choices:
             return None
-        message = (
-            choices[0].get("message")
-            if isinstance(choices[0], dict)
-            else getattr(choices[0], "message", None)
+        message = getattr(choices[0], "message", None)
+        if message is None and isinstance(choices[0], dict):
+            message = choices[0].get("message")
+        content = (
+            message.get("content")
+            if isinstance(message, dict)
+            else getattr(message, "content", None)
         )
-        if message is None:
+        if isinstance(content, str):
+            return content
+        if not isinstance(content, list):
             return None
-        if isinstance(message, dict):
-            return message.get("content")
-        return getattr(message, "content", None)
+        texts = [
+            item.get("text") if isinstance(item, dict) else getattr(item, "text", None)
+            for item in content
+        ]
+        return "".join(text for text in texts if text)

@@ -19,6 +19,12 @@ def test_default_dashscope_model_is_qwen_flash_release():
     )
 
 
+def test_default_dashscope_url_uses_native_api():
+    assert Settings.model_fields["dashscope_base_url"].default == (
+        "https://dashscope-intl.aliyuncs.com/api/v1"
+    )
+
+
 def test_runtime_accepts_https_job_posting_api():
     settings_for("https://gateway.test/api/proxy/v3/employees/job-posting").validate_runtime()
 
