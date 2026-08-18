@@ -78,6 +78,7 @@ The worker persists **`result.analysis`** into `service_employees`. It is:
 - a single plain-text string,
 - stripped of internal citation markers (`[document:0]`, `[github:...]`,
   `[web:...]`, `[job_description]`, `[cv_and_resume]`),
+- external evidence references use the full source URL rather than a display name,
 - safe to render and store as-is.
 
 `sources` and `warnings` are supplementary metadata and may be ignored by the

@@ -151,6 +151,29 @@ def test_analysis_prompt_requires_html_and_forbids_markdown():
     assert "Jelaskan dampak setiap pengalaman atau keahlian" in prompt
     assert "<p><b>Rekomendasi untuk HR:</b>" in prompt
     assert "<p><b>Pertanyaan Wawancara yang Disarankan:</b>" in prompt
+    assert "URL lengkap persis seperti yang tersedia" in prompt
+    assert "jangan mengarang URL" in prompt
+
+
+def test_external_evidence_input_identifies_sources_by_url():
+    evidence = CVAnalyzer._format_llm_input(
+        "job-id",
+        "Backend Engineer",
+        "Build reliable Python APIs.",
+        "Candidate built APIs.",
+        [
+            {
+                "id": "web:1",
+                "url": "https://example.com/profile",
+                "type": "website",
+                "title": "Candidate Profile",
+                "excerpt": "Built production APIs.",
+            }
+        ],
+    )
+
+    assert "SOURCE URL: https://example.com/profile" in evidence
+    assert "Candidate Profile" not in evidence
 
 
 def test_analyzer_returns_narrative_and_closes_upload():

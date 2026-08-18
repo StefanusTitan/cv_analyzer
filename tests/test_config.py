@@ -12,6 +12,13 @@ def settings_for(job_posting_url: str) -> Settings:
     )
 
 
+def test_default_dashscope_model_is_qwen_flash_release():
+    assert (
+        Settings.model_fields["dashscope_model"].default
+        == "qwen3.7-flash-2026-07-15"
+    )
+
+
 def test_runtime_accepts_https_job_posting_api():
     settings_for("https://gateway.test/api/proxy/v3/employees/job-posting").validate_runtime()
 

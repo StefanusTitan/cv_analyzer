@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     dashscope_api_key: str = ""
     dashscope_base_url: str = "https://dashscope-intl.aliyuncs.com/api/v1"
-    dashscope_model: str = "deepseek-v4-flash-0731"
+    dashscope_model: str = "qwen3.7-flash-2026-07-15"
     github_access_token: str = ""
     scraper_worker_url: str = "http://scraper_worker:8010"
     scraper_worker_token: str = ""
