@@ -1,7 +1,6 @@
 import json
 import os
 import sys
-import uuid
 from typing import Any, ClassVar
 
 from loguru import logger as loguru_logger
@@ -50,39 +49,84 @@ class Logger:
                 format="{extra[output]}",
             )
 
+    _HTTP_EXTRA_KEYS: ClassVar[set[str]] = {
+        "method",
+        "url",
+        "client_ip",
+        "query_params",
+        "request_payload",
+        "response_body",
+        "duration_ms",
+        "user_id",
+    }
+    _STRUCTURED_EXTRA_KEYS: ClassVar[set[str]] = {
+        "output",
+        "request_id",
+        "component",
+        "event",
+        "stage",
+        "error_code",
+        "error",
+        "performance",
+        "status_code",
+        *_HTTP_EXTRA_KEYS,
+    }
+
     def serialize(self, record):
+        extra = record["extra"]
         subset = {
             "timestamp": record["time"].strftime("%d/%m/%Y %H.%M.%S.%f WIB"),
-            "id": str(uuid.uuid4()),
-            "request_id": record["extra"].get("request_id"),
+            "request_id": extra.get("request_id"),
             "level": record["level"].name,
+            "component": extra.get("component"),
+            "event": extra.get("event"),
+            "stage": extra.get("stage"),
+            "error_code": extra.get("error_code"),
+            "status_code": extra.get("status_code"),
             "message": record["message"],
-            "error": self._mask_data(record["extra"].get("error", None)),
-            "request": {
-                "method": record["extra"].get("method"),
-                "url": str(record["extra"].get("url"))
-                if record["extra"].get("url")
-                else None,
-                "client_ip": record["extra"].get("client_ip"),
+            "error": self._mask_data(extra.get("error")),
+            "performance": self._truncate_data(extra.get("performance")),
+        }
+        if extra.get("method") or extra.get("url"):
+            subset["request"] = {
+                "method": extra.get("method"),
+                "url": str(extra["url"]) if extra.get("url") else None,
+                "client_ip": extra.get("client_ip"),
                 "query_params": self._truncate_data(
-                    self._mask_data(record["extra"].get("query_params"))
+                    self._mask_data(extra.get("query_params"))
                 ),
                 "payload": self._truncate_data(
-                    self._mask_data(record["extra"].get("request_payload"))
+                    self._mask_data(extra.get("request_payload"))
                 ),
-            },
-            "response": {
-                "status": record["extra"].get("status_code"),
-                "body": self._truncate_data(
-                    self._mask_data(record["extra"].get("response_body", None))
-                ),
-                "duration_ms": record["extra"].get("duration_ms"),
-            },
-            "performance": self._truncate_data(record["extra"].get("performance")),
-            "user": {"id": record["extra"].get("user_id", None)},
-        }
+            }
+            subset["response"] = {
+                "status": extra.get("status_code"),
+                "body": self._truncate_data(self._mask_data(extra.get("response_body"))),
+                "duration_ms": extra.get("duration_ms"),
+            }
+        for key, value in extra.items():
+            if key in self._STRUCTURED_EXTRA_KEYS or key in subset:
+                continue
+            subset[key] = self._truncate_data(self._mask_data(value))
         indent = 2 if self.pretty_json else None
-        return json.dumps(subset, default=str, ensure_ascii=False, indent=indent)
+        return json.dumps(
+            self._omit_empty(subset), default=str, ensure_ascii=False, indent=indent
+        )
+
+    def _omit_empty(self, value: Any):
+        if isinstance(value, dict):
+            compacted = {}
+            for item_key, item_value in value.items():
+                item = self._omit_empty(item_value)
+                if item is None or item == {} or item == []:
+                    continue
+                compacted[item_key] = item
+            return compacted
+        if isinstance(value, list):
+            return [self._omit_empty(item) for item in value]
+        if isinstance(value, tuple):
+            return [self._omit_empty(item) for item in value]
+        return value
 
     def _mask_data(self, value: Any, key: str | None = None):
         if not self.masking_enabled:

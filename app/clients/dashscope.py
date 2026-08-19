@@ -12,6 +12,7 @@ from dashscope.common.error import (
 )
 
 from app.core.errors import UpstreamError
+from app.utils.log import logger
 
 
 class LLMClient:
@@ -47,65 +48,101 @@ class LLMClient:
                 request_timeout=self.timeout_seconds,
             )
         except AuthenticationError as exc:
-            raise UpstreamError(
+            self._fail(
                 "The LLM provider rejected the configured credentials",
                 502,
                 "llm_authentication_failed",
-            ) from exc
+                cause=exc,
+            )
         except ServiceUnavailableError as exc:
-            raise UpstreamError(
+            self._fail(
                 "The LLM provider is temporarily unavailable",
                 502,
                 "llm_unavailable",
-            ) from exc
+                cause=exc,
+            )
         except (TimeoutException, TimeoutError) as exc:
-            raise UpstreamError(
-                "The LLM provider timed out", 504, "llm_timeout"
-            ) from exc
+            self._fail("The LLM provider timed out", 504, "llm_timeout", cause=exc)
         except (RequestFailure, InvalidParameter, UnsupportedHTTPMethod) as exc:
-            raise UpstreamError(
+            self._fail(
                 "The LLM provider returned an error",
                 502,
                 "llm_provider_error",
-            ) from exc
+                cause=exc,
+            )
 
         if response.status_code != HTTPStatus.OK:
             code = (response.code or "").lower()
             message = response.message or ""
             if response.status_code in {401, 403} or "apikey" in code or "auth" in code:
-                raise UpstreamError(
+                self._fail(
                     "The LLM provider rejected the configured credentials",
                     502,
                     "llm_authentication_failed",
+                    provider_status=response.status_code,
+                    provider_code=response.code,
                 )
             if response.status_code == 429 or "throttl" in code or "rate" in code:
-                raise UpstreamError(
+                self._fail(
                     "The LLM provider is temporarily unavailable",
                     502,
                     "llm_unavailable",
+                    provider_status=response.status_code,
+                    provider_code=response.code,
                 )
             if (
                 response.status_code == 408
                 or "timeout" in code
                 or "timeout" in message.lower()
             ):
-                raise UpstreamError(
-                    "The LLM provider timed out", 504, "llm_timeout"
+                self._fail(
+                    "The LLM provider timed out",
+                    504,
+                    "llm_timeout",
+                    provider_status=response.status_code,
+                    provider_code=response.code,
                 )
-            raise UpstreamError(
+            self._fail(
                 "The LLM provider returned an error",
                 502,
                 "llm_provider_error",
+                provider_status=response.status_code,
+                provider_code=response.code,
             )
 
         content = self._extract_content(response)
         if not content or not content.strip():
-            raise UpstreamError(
+            self._fail(
                 "The LLM provider returned an empty response",
                 502,
                 "llm_empty_response",
+                provider_status=response.status_code,
             )
         return content.strip()
+
+    def _fail(
+        self,
+        message: str,
+        status_code: int,
+        error_code: str,
+        *,
+        cause: BaseException | None = None,
+        provider_status: int | None = None,
+        provider_code: str | None = None,
+    ) -> None:
+        logger.bind(
+            component="llm",
+            event="call_failed",
+            error_code=error_code,
+            status_code=status_code,
+            provider_status=provider_status,
+            provider_code=provider_code,
+            cause_type=type(cause).__name__ if cause else None,
+        ).error(f"LLM call failed ({error_code})")
+        error = UpstreamError(message, status_code, error_code)
+        if cause is not None:
+            raise error from cause
+        raise error
 
     @staticmethod
     def _extract_content(response) -> str | None:

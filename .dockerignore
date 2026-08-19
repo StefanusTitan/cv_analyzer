@@ -1,26 +1,21 @@
-# Git and local metadata
 .git
 .gitignore
-.DS_Store
-
-# Environment and local configuration
-environment/
-.env
-
-# Python
-__pycache__/
+.venv
+__pycache__
+**/__pycache__
 *.py[cod]
-*.pyo
-*.pyd
-.Python
-.venv/
-env/
-venv/
-
-# Runtime and test data
-logs/
-tests/
-
-# IDE
-.idea/
-.vscode/
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+htmlcov
+logs
+docs
+tests
+environment
+deploy
+docker-compose*.yml
+Dockerfile
+*.md
+.python-version
+.commandcode

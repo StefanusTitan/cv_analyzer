@@ -18,7 +18,8 @@ RUN playwright install --with-deps chromium \
     && groupadd --system app \
     && useradd --system --gid app --home-dir /tmp --no-create-home app \
     && chmod -R a+rX /ms-playwright
-COPY --chown=app:app . .
+COPY --chown=app:app main.py ./
+COPY --chown=app:app app ./app
 USER app
 
 EXPOSE 8003 8010

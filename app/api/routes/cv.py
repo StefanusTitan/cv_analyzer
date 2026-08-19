@@ -28,6 +28,7 @@ async def analyze_cv(
         )
         return {"message": "CV analyzed successfully", "result": result}
     except AnalysisError as exc:
+        request.state.analysis_error = {"code": exc.code, "message": exc.message}
         return JSONResponse(
             status_code=exc.status_code,
             content={"message": exc.message, "result": None, "errors": [exc.code]},

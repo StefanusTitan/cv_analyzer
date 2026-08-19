@@ -9,6 +9,8 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 
 from app.utils.log import logger
 
+_QUIET_SUCCESS_PATHS = {"/", "/health/live", "/health/ready"}
+
 
 class LogMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: FastAPI):
@@ -37,23 +39,45 @@ class LogMiddleware(BaseHTTPMiddleware):
             request_payload = await self._extract_request_payload(request, body)
             await self._restore_request_body(request, body)
         response = await call_next(request)
+        duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+        failed = response.status_code >= 400
+
+        if request.url.path in _QUIET_SUCCESS_PATHS and not failed:
+            response.headers["x-request-id"] = request_id
+            return response
 
         if request.url.path == "/cv/analyze":
-            duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+            analysis_error = getattr(request.state, "analysis_error", None)
+            error_code = None
+            error_message = None
+            if isinstance(analysis_error, dict):
+                error_code = analysis_error.get("code")
+                error_message = analysis_error.get("message")
+            elif failed:
+                error_code = "unknown_error"
             self.logger.bind(
                 request_id=request_id,
+                component="http",
+                event="analyze_request",
+                error_code=error_code,
                 method=request.method,
                 url=request.url.path,
                 client_ip=request.client.host if request.client else None,
-                query_params=dict(request.query_params),
                 request_payload=request_payload,
                 status_code=response.status_code,
-                response_body={"omitted": True, "reason": "contains_candidate_data"},
+                response_body=(
+                    {"message": error_message, "errors": [error_code] if error_code else None}
+                    if failed
+                    else {"omitted": True, "reason": "contains_candidate_data"}
+                ),
                 duration_ms=duration_ms,
-                user_id=None,
             ).log(
-                "INFO" if response.status_code < 400 else "ERROR",
-                "Success" if response.status_code < 400 else "Fail",
+                "ERROR" if failed else "INFO",
+                (
+                    "CV analysis completed"
+                    if not failed
+                    else f"CV analysis failed ({error_code or response.status_code})"
+                ),
             )
             request.state.response_logged = True
             response.headers["x-request-id"] = request_id
@@ -78,7 +102,6 @@ class LogMiddleware(BaseHTTPMiddleware):
             else request.url.path
         )
         client_ip = request.client.host if request.client else None
-        duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
         try:
             resp_json = json.loads(response_body.decode("utf-8"))
@@ -89,11 +112,17 @@ class LogMiddleware(BaseHTTPMiddleware):
                 else None
             )
 
-        log_level = "INFO" if response.status_code < 400 else "ERROR"
-        message = "Success" if response.status_code < 400 else "Fail"
+        log_level = "ERROR" if failed else "INFO"
+        message = (
+            f"{request.method} {request.url.path} {response.status_code}"
+            if not failed
+            else f"{request.method} {request.url.path} failed ({response.status_code})"
+        )
 
         self.logger.bind(
             request_id=request_id,
+            component="http",
+            event="request",
             method=request.method,
             url=endpoint,
             client_ip=client_ip,
@@ -102,7 +131,6 @@ class LogMiddleware(BaseHTTPMiddleware):
             status_code=response.status_code,
             response_body=resp_json,
             duration_ms=duration_ms,
-            user_id=None,
         ).log(log_level, message)
         request.state.response_logged = True
 

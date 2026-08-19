@@ -236,14 +236,19 @@ class CVAnalyzer:
         request_id: str | None = None,
     ) -> AnalyzeResult:
         started = time.perf_counter()
+        stage = "validate_upload"
         if not files:
-            raise UploadError("At least one file is required", 400, "missing_files")
+            error = UploadError("At least one file is required", 400, "missing_files")
+            self._log_failure(request_id, stage, error.code, error.status_code)
+            raise error
         if len(files) > self.settings.cv_max_files:
-            raise UploadError(
+            error = UploadError(
                 f"Maximum {self.settings.cv_max_files} files are allowed",
                 400,
                 "file_count_exceeded",
             )
+            self._log_failure(request_id, stage, error.code, error.status_code)
+            raise error
 
         warnings: list[str] = []
         sources: list[dict] = []
@@ -254,6 +259,7 @@ class CVAnalyzer:
                 ignore_cleanup_errors=True,
             ) as directory:
                 # Job lookup and document prep are independent until the LLM step.
+                stage = "job_and_documents"
                 parallel_started = time.perf_counter()
                 job_posting, prepared = await asyncio.gather(
                     self.job_postings.fetch(job_posting_id),
@@ -265,6 +271,7 @@ class CVAnalyzer:
                 job_title = job_posting.title
                 job_description = job_posting.description
 
+                stage = "build_cv"
                 cv, included_ids, cv_truncated = self._build_cv(documents)
                 if cv_truncated:
                     warnings.append(
@@ -282,6 +289,7 @@ class CVAnalyzer:
                 )
 
                 cv_ready_at = time.perf_counter()
+                stage = "enrich"
                 urls = stable_urls(
                     URL_RE.findall(cv),
                     self.settings.scrape_max_links,
@@ -303,6 +311,7 @@ class CVAnalyzer:
                 ]
                 evidence_prepared_at = time.perf_counter()
 
+                stage = "llm"
                 raw_analysis = await self.llm.text_completion(
                     self._analysis_prompt(),
                     self._format_llm_input(
@@ -314,10 +323,13 @@ class CVAnalyzer:
                     ),
                     max_tokens=2500,
                 )
+                stage = "format"
                 analysis, analysis_en = self._prepare_bilingual_summary(raw_analysis)
                 completed_at = time.perf_counter()
                 logger.bind(
                     request_id=request_id,
+                    component="analyze",
+                    event="stage_timings",
                     performance={
                         "job_and_document_prep_ms": round(
                             (prepared_at - parallel_started) * 1000, 2
@@ -349,10 +361,29 @@ class CVAnalyzer:
                     sources=response_sources,
                     warnings=warnings,
                 )
+        except AnalysisError as exc:
+            self._log_failure(request_id, stage, exc.code, exc.status_code)
+            raise
         finally:
             await asyncio.gather(
                 *(upload.close() for upload in files or []), return_exceptions=True
             )
+
+    def _log_failure(
+        self,
+        request_id: str | None,
+        stage: str,
+        error_code: str,
+        status_code: int,
+    ) -> None:
+        logger.bind(
+            request_id=request_id,
+            component="analyze",
+            event="failed",
+            stage=stage,
+            error_code=error_code,
+            status_code=status_code,
+        ).error(f"CV analysis failed at {stage} ({error_code})")
 
     async def _enrich_all(self, urls: list[str], warnings: list[str]) -> list[dict]:
         if not urls:

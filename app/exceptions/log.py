@@ -20,6 +20,10 @@ class LogError:
             }
             error_details.append(error_detail)
 
+        request.state.analysis_error = {
+            "code": "request_validation_error",
+            "message": "Validation error",
+        }
         self._log_exception(
             request=request,
             status_code=400,
@@ -45,6 +49,10 @@ class LogError:
     async def http_exception_handler(
         self, request: Request, exc: HTTPException
     ) -> JSONResponse:
+        request.state.analysis_error = {
+            "code": "http_exception",
+            "message": str(exc.detail),
+        }
         self._log_exception(
             request=request,
             status_code=exc.status_code,
@@ -66,6 +74,10 @@ class LogError:
     async def unhandled_exception_handler(
         self, request: Request, exc: Exception
     ) -> JSONResponse:
+        request.state.analysis_error = {
+            "code": "internal_server_error",
+            "message": "Internal server error",
+        }
         self._log_exception(
             request=request,
             status_code=500,
@@ -102,17 +114,17 @@ class LogError:
         )
         client_ip = request.client.host if request.client else None
 
+        analysis_error = getattr(request.state, "analysis_error", None)
         logger.bind(
             request_id=self._get_request_id(request),
+            component="http",
+            event="request_error",
+            error_code=analysis_error.get("code") if isinstance(analysis_error, dict) else None,
             method=request.method,
             url=endpoint,
             client_ip=client_ip,
             query_params=dict(request.query_params),
-            request_payload=None,
             status_code=status_code,
-            response_body=None,
-            duration_ms=None,
-            user_id=None,
             error=error,
         ).log(level, message)
         request.state.response_logged = True
