@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import UploadFile
 
-from app.core.errors import AnalysisError, UploadError
+from app.core.errors import AnalysisError, UploadError, UpstreamError
 from app.schemas.cv import AnalyzeResult
 from app.services.document_extractor import detect_kind, extract
 from app.utils.log import logger
@@ -303,7 +303,7 @@ class CVAnalyzer:
                 ]
                 evidence_prepared_at = time.perf_counter()
 
-                analysis = await self.llm.text_completion(
+                raw_analysis = await self.llm.text_completion(
                     self._analysis_prompt(),
                     self._format_llm_input(
                         job_posting.id,
@@ -312,9 +312,9 @@ class CVAnalyzer:
                         cv,
                         evidence_sources,
                     ),
-                    max_tokens=1200,
+                    max_tokens=2500,
                 )
-                analysis = self._prepare_summary(analysis)
+                analysis, analysis_en = self._prepare_bilingual_summary(raw_analysis)
                 completed_at = time.perf_counter()
                 logger.bind(
                     request_id=request_id,
@@ -345,6 +345,7 @@ class CVAnalyzer:
                     job_posting_id=job_posting.id,
                     job_title=job_title,
                     analysis=analysis,
+                    analysis_en=analysis_en,
                     sources=response_sources,
                     warnings=warnings,
                 )
@@ -409,6 +410,44 @@ class CVAnalyzer:
         except asyncio.CancelledError:
             raise
         return None
+
+    @staticmethod
+    def _invalid_llm_response() -> UpstreamError:
+        return UpstreamError(
+            "The LLM provider returned an invalid response",
+            502,
+            "llm_invalid_response",
+        )
+
+    @staticmethod
+    def _parse_bilingual_payload(raw: str) -> dict:
+        text = raw.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+            text = re.sub(r"\s*```$", "", text)
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            start = text.find("{")
+            end = text.rfind("}")
+            if start < 0 or end <= start:
+                raise CVAnalyzer._invalid_llm_response()
+            try:
+                payload = json.loads(text[start : end + 1])
+            except json.JSONDecodeError as exc:
+                raise CVAnalyzer._invalid_llm_response() from exc
+        if not isinstance(payload, dict):
+            raise CVAnalyzer._invalid_llm_response()
+        return payload
+
+    @staticmethod
+    def _prepare_bilingual_summary(raw: str) -> tuple[str, str]:
+        payload = CVAnalyzer._parse_bilingual_payload(raw)
+        indonesian = CVAnalyzer._prepare_summary(str(payload.get("id") or ""))
+        english = CVAnalyzer._prepare_summary(str(payload.get("en") or ""))
+        if not indonesian or not english:
+            raise CVAnalyzer._invalid_llm_response()
+        return indonesian, english
 
     @staticmethod
     def _prepare_summary(analysis: str) -> str:
@@ -568,17 +607,21 @@ class CVAnalyzer:
         return (
             "Kamu adalah asisten rekrutmen untuk staf HR yang tidak harus berlatar teknis. "
             "Nilai kandidat berdasarkan JOB TITLE dan JOB DESCRIPTION.\n\n"
-            "Tulis bahasa Indonesia yang sederhana, maksimal 300 kata. "
-            "Jelaskan dampak pengalaman terhadap pekerjaan, bukan daftar teknologi. "
-            "Jangan melebih-lebihkan kemampuan kandidat.\n\n"
-            "Kembalikan hanya fragmen HTML, bukan Markdown atau JSON. "
-            "Gunakan tag <p>, <b>, <i>, <ul>, <ol>, <li> tanpa atribut. Ikuti struktur ini:\n"
+            "Tulis satu penilaian, lalu isi id dan en dengan terjemahan setia "
+            "(verdict, poin, dan URL sama). Jangan menilai ulang. "
+            "Maksimal 300 kata per bahasa. Jelaskan dampak pengalaman terhadap pekerjaan, "
+            "bukan daftar teknologi. Jangan melebih-lebihkan kemampuan kandidat.\n\n"
+            "Kembalikan SATU objek JSON tanpa Markdown, kunci id dan en. "
+            "Setiap nilai adalah fragmen HTML memakai tag <p>, <b>, <i>, <ul>, <ol>, <li> "
+            "tanpa atribut. Struktur sama untuk kedua bahasa:\n"
             "<p><b>Status Kesesuaian:</b> Kuat / Sedang / Lemah — satu alasan singkat.</p>"
             "<p><b>Alasan Kandidat Cocok:</b></p>"
             "<ul><li>Dua sampai tiga poin; satu sampai dua kalimat per poin.</li></ul>"
             "<p><b>Hal yang Perlu Dipastikan:</b></p>"
             "<ul><li>Dua sampai tiga poin; satu sampai dua kalimat per poin.</li></ul>"
-            "<p><b>Rekomendasi untuk HR:</b> Satu kalimat dengan langkah berikutnya yang jelas.</p>\n\n"
+            "<p><b>Rekomendasi untuk HR:</b> Satu kalimat dengan langkah berikutnya yang jelas.</p>\n"
+            "Heading en: Fit, Why they fit, What to confirm, Recommendation for HR. "
+            "Verdict en: Strong / Moderate / Weak.\n\n"
             "Kutip bukti GitHub, web, atau LinkedIn dengan URL lengkap dari baris SOURCE URL, "
             "satu per klaim, maksimal 4. Jangan mengubah atau mengarang URL. "
             "Klaim hanya dari CV atau job description boleh memakai [CV] atau [JD]. "

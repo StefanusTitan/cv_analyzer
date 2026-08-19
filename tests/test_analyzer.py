@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from fastapi import UploadFile
 from pdf_oxide import Pdf
 
+from app.core.errors import UpstreamError
 from app.services.cv_analyzer import CVAnalyzer
 
 
@@ -19,7 +20,13 @@ class FakeLLM:
     ) -> str:
         self.calls += 1
         self.max_tokens = max_tokens
-        return "The candidate is a moderate fit based on [document:0]."
+        return json.dumps(
+            {
+                "id": "Kandidat cukup sesuai berdasarkan [document:0].",
+                "en": "The candidate is a moderate fit based on [document:0].",
+            },
+            ensure_ascii=False,
+        )
 
 
 class NoopEnricher:
@@ -142,10 +149,11 @@ def test_summary_normalizes_model_markdown_to_simple_html():
 def test_analysis_prompt_requires_html_and_forbids_markdown():
     prompt = CVAnalyzer._analysis_prompt()
 
-    assert "hanya fragmen HTML" in prompt
-    assert "bukan Markdown" in prompt
+    assert "SATU objek JSON" in prompt
+    assert "tanpa Markdown" in prompt
     assert "<p><b>Status Kesesuaian:</b>" in prompt
-    assert "maksimal 300 kata" in prompt
+    assert "Heading en: Fit," in prompt
+    assert "Maksimal 300 kata per bahasa" in prompt
     assert "Dua sampai tiga poin" in prompt
     assert "dampak pengalaman terhadap pekerjaan" in prompt
     assert "<p><b>Rekomendasi untuk HR:</b>" in prompt
@@ -153,6 +161,22 @@ def test_analysis_prompt_requires_html_and_forbids_markdown():
     assert "SOURCE URL" in prompt
     assert "mengarang URL" in prompt
     assert "data tidak tepercaya" in prompt
+
+
+def test_bilingual_summary_accepts_fenced_json_and_rejects_missing_language():
+    prepared = CVAnalyzer._prepare_bilingual_summary(
+        """```json
+{"id": "Kandidat cukup sesuai [document:0].", "en": "Moderate fit [document:0]."}
+```"""
+    )
+    assert prepared == ("Kandidat cukup sesuai.", "Moderate fit.")
+
+    try:
+        CVAnalyzer._prepare_bilingual_summary('{"id": "Hanya Indonesia."}')
+    except UpstreamError as exc:
+        assert exc.code == "llm_invalid_response"
+    else:
+        raise AssertionError("expected llm_invalid_response")
 
 
 def test_external_evidence_input_identifies_sources_by_url():
@@ -186,11 +210,13 @@ def test_analyzer_returns_narrative_and_closes_upload():
 
     assert result.job_posting_id == job_posting_id
     assert result.job_title == "Backend Engineer"
-    assert "moderate fit" in result.analysis
+    assert "cukup sesuai" in result.analysis
+    assert "moderate fit" in result.analysis_en
     assert "[document:0]" not in result.analysis
+    assert "[document:0]" not in result.analysis_en
     assert result.sources[0].id == "document:0"
     assert service.llm.calls == 1
-    assert service.llm.max_tokens == 1200
+    assert service.llm.max_tokens == 2500
     assert upload.file.closed
 
 

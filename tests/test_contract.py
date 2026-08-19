@@ -3,7 +3,7 @@
 These tests pin the worker-facing contract used by the durable
 ``service_employees`` worker:
 
-* success shape contains ``result.analysis`` (the field the worker persists)
+* success shape contains ``result.analysis`` and ``result.analysis_en``
 * permanent failures return a 4xx with a stable machine-readable ``errors`` code
 * retryable/upstream failures return a 5xx with a stable code
 * responses never leak exception stacks, upstream bodies, or extracted CV text
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import os
 import re
 import tempfile
@@ -33,6 +34,13 @@ from app.services.cv_analyzer import CVAnalyzer
 
 JOB_POSTING_ID = "32a594ac-9e1b-4a9e-a3be-6e6ca87db8ff"
 OTHER_JOB_POSTING_ID = "11111111-2222-3333-4444-555555555555"
+
+
+def bilingual_analysis(indonesian: str, english: str | None = None) -> str:
+    return json.dumps(
+        {"id": indonesian, "en": english if english is not None else indonesian},
+        ensure_ascii=False,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +91,10 @@ class FakeLLM:
             return self.response
         match = re.match(r"JOB POSTING ID: ([^\n]+)", user)
         jid = match.group(1) if match else "unknown"
-        return f"The candidate is a moderate fit for {jid} based on [document:0]."
+        return bilingual_analysis(
+            f"Kandidat cukup sesuai untuk {jid} berdasarkan [document:0].",
+            f"The candidate is a moderate fit for {jid} based on [document:0].",
+        )
 
 
 class FakeJobPostingClient:
@@ -200,6 +211,7 @@ def test_valid_pdf_returns_200_and_nonempty_analysis():
     assert body["result"]["job_posting_id"] == JOB_POSTING_ID
     assert body["result"]["job_title"] == "Backend Engineer"
     assert body["result"]["analysis"]
+    assert body["result"]["analysis_en"]
     assert isinstance(body["result"]["sources"], list)
     assert isinstance(body["result"]["warnings"], list)
 
@@ -224,6 +236,7 @@ def test_valid_docx_returns_200_and_nonempty_analysis():
     assert response.status_code == 200
     body = response.json()
     assert body["result"]["analysis"]
+    assert body["result"]["analysis_en"]
 
 
 def test_multiple_accepted_files_still_work():
@@ -251,25 +264,36 @@ def test_multiple_accepted_files_still_work():
     result = response.json()["result"]
     assert len(result["sources"]) == 2
     assert result["analysis"]
+    assert result["analysis_en"]
 
 
 def test_success_response_preserves_result_analysis_field():
-    """The employee worker persists ``result.analysis`` exactly."""
+    """The employee worker persists ``result.analysis`` and ``result.analysis_en``."""
     app = build_app(
-        make_analyzer(llm=FakeLLM(response="Display-ready hiring summary."))
+        make_analyzer(
+            llm=FakeLLM(
+                response=bilingual_analysis(
+                    "Ringkasan rekrutmen siap tampil.",
+                    "Display-ready hiring summary.",
+                )
+            )
+        )
     )
     response = run(post(app))
     assert response.status_code == 200
-    assert response.json()["result"]["analysis"] == "Display-ready hiring summary."
+    assert response.json()["result"]["analysis"] == "Ringkasan rekrutmen siap tampil."
+    assert response.json()["result"]["analysis_en"] == "Display-ready hiring summary."
 
 
 def test_analysis_output_strips_internal_document_markers():
     app = build_app(
         make_analyzer(
             llm=FakeLLM(
-                response=(
+                response=bilingual_analysis(
+                    "Cukup sesuai [document:0]; verifikasi backend [job_description] "
+                    "dan portofolio [github:owner/repo] and [web:https://x.test/].",
                     "Moderate fit [document:0]; verify backend [job_description] "
-                    "and portfolio [github:owner/repo] and [web:https://x.test/]."
+                    "and portfolio [github:owner/repo] and [web:https://x.test/].",
                 )
             )
         )
@@ -291,7 +315,12 @@ def test_analysis_output_strips_internal_document_markers():
 def test_employee_worker_contract_persists_result_analysis():
     """Exactly the interaction the durable employee-service worker performs."""
     analyzer = make_analyzer(
-        llm=FakeLLM(response="Strong fit with verifiable backend experience."),
+        llm=FakeLLM(
+            response=bilingual_analysis(
+                "Cocok kuat dengan pengalaman backend yang dapat diverifikasi.",
+                "Strong fit with verifiable backend experience.",
+            )
+        ),
         job_postings=FakeJobPostingClient(default_posting()),
     )
     app = build_app(analyzer)
@@ -304,11 +333,14 @@ def test_employee_worker_contract_persists_result_analysis():
     )
     assert response.status_code == 200
     body = response.json()
-    # The worker reads result.analysis and persists it into service_employees.
+    # The worker persists both language strings into service_employees.
     assert body["result"] is not None
     analysis = body["result"]["analysis"]
+    analysis_en = body["result"]["analysis_en"]
     assert isinstance(analysis, str)
-    assert analysis == "Strong fit with verifiable backend experience."
+    assert isinstance(analysis_en, str)
+    assert analysis == "Cocok kuat dengan pengalaman backend yang dapat diverifikasi."
+    assert analysis_en == "Strong fit with verifiable backend experience."
 
 
 # ---------------------------------------------------------------------------

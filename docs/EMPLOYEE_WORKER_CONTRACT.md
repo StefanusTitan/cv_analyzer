@@ -68,20 +68,24 @@ These are upper bounds; do not send larger payloads.
   "result": {
     "job_posting_id": "32a594ac-9e1b-4a9e-a3be-6e6ca87db8ff",
     "job_title": "Backend Engineer",
-    "analysis": "non-empty plain-text summary the worker should persist",
+    "analysis": "non-empty Indonesian HTML summary the worker should persist",
+    "analysis_en": "non-empty English HTML summary the worker should persist",
     "sources": [],
     "warnings": []
   }
 }
 ```
 
-The worker persists **`result.analysis`** into `service_employees`. It is:
+The worker persists **`result.analysis`** and **`result.analysis_en`** into
+`service_employees`. Both are:
 
-- a single plain-text string,
+- a single HTML string,
 - stripped of internal citation markers (`[document:0]`, `[github:...]`,
   `[web:...]`, `[job_description]`, `[cv_and_resume]`),
 - external evidence references use the full source URL rather than a display name,
 - safe to render and store as-is.
+- translations of the same verdict; `analysis` is Indonesian and `analysis_en`
+  is English.
 
 `sources` and `warnings` are supplementary metadata and may be ignored by the
 worker.
@@ -137,6 +141,7 @@ Classify by **HTTP status code first**; `errors[0]` provides the stable code.
 | `llm_unavailable`                  | 502    | LLM provider is temporarily unavailable / rate-limited.|
 | `llm_provider_error`              | 502    | LLM provider returned an error.                        |
 | `llm_empty_response`              | 502    | LLM provider returned an empty response.              |
+| `llm_invalid_response`            | 502    | LLM output was not valid bilingual HTML.              |
 | `llm_authentication_failed`        | 502    | LLM credentials rejected (operator action needed; 5xx).|
 | `internal_server_error`            | 500    | Unhandled analyzer error.                              |
 | *(any other 5xx)*                 | 5xx    | Treat as retryable.                                    |
