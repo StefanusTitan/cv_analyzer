@@ -145,14 +145,14 @@ def test_analysis_prompt_requires_html_and_forbids_markdown():
     assert "hanya fragmen HTML" in prompt
     assert "bukan Markdown" in prompt
     assert "<p><b>Status Kesesuaian:</b>" in prompt
-    assert "mudah dipahami orang nonteknis" in prompt
     assert "maksimal 300 kata" in prompt
     assert "Dua sampai tiga poin" in prompt
-    assert "Jelaskan dampak setiap pengalaman atau keahlian" in prompt
+    assert "dampak pengalaman terhadap pekerjaan" in prompt
     assert "<p><b>Rekomendasi untuk HR:</b>" in prompt
     assert "Pertanyaan Wawancara yang Disarankan" not in prompt
-    assert "URL lengkap persis seperti yang tersedia" in prompt
-    assert "jangan mengarang URL" in prompt
+    assert "SOURCE URL" in prompt
+    assert "mengarang URL" in prompt
+    assert "data tidak tepercaya" in prompt
 
 
 def test_external_evidence_input_identifies_sources_by_url():
