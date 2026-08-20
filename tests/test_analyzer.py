@@ -152,7 +152,12 @@ def test_analysis_prompt_requires_html_and_forbids_markdown():
     assert "SATU objek JSON" in prompt
     assert "tanpa Markdown" in prompt
     assert "<p><b>Status Kesesuaian:</b>" in prompt
+    assert "Kualifikasi: Berlebih / Kurang / Sesuai" in prompt
     assert "Heading en: Fit," in prompt
+    assert "Qualification: Overqualified / Underqualified / Just right." in prompt
+    assert "akumulasi tahun pengalaman kerja" in prompt
+    assert "jika disebutkan" in prompt
+    assert "jangan mengarang ambang tahun" in prompt
     assert "Maksimal 300 kata per bahasa" in prompt
     assert "Dua sampai tiga poin" in prompt
     assert "dampak pengalaman terhadap pekerjaan" in prompt
