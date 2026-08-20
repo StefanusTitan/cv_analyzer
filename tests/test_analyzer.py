@@ -160,6 +160,8 @@ def test_analysis_prompt_requires_html_and_forbids_markdown():
     assert "Pertanyaan Wawancara yang Disarankan" not in prompt
     assert "SOURCE URL" in prompt
     assert "mengarang URL" in prompt
+    assert "[GitHub]" in prompt
+    assert "sebagai pengganti URL" in prompt
     assert "data tidak tepercaya" in prompt
 
 
@@ -197,6 +199,7 @@ def test_external_evidence_input_identifies_sources_by_url():
     )
 
     assert "SOURCE URL: https://example.com/profile" in evidence
+    assert "bukan judul, nama sumber, atau label" in evidence
     assert "Candidate Profile" not in evidence
 
 
