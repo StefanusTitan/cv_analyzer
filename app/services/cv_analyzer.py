@@ -32,6 +32,9 @@ SUMMARY_CITATION_RE = re.compile(
 MARKDOWN_RE = re.compile(
     r"(?m)(?:^\s*(?:#{1,6}\s+|[-+*]\s+|\d+[.)]\s+)|\*\*[^*\n]+\*\*|__[^_\n]+__)"
 )
+ANCHOR_RE = re.compile(
+    r"<a\b[^>]*?href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", re.IGNORECASE
+)
 Document = tuple[int, str, str]
 
 
@@ -529,6 +532,16 @@ class CVAnalyzer:
     def _prepare_summary(analysis: str) -> str:
         """Clean model output: remove internal citations/labels, preserve HTML formatting."""
         summary = SUMMARY_CITATION_RE.sub("", analysis)
+        # The model sometimes cites with <a href> despite the tag allowlist;
+        # unwrap to the plain URL so citations survive frontend sanitizing.
+        summary = ANCHOR_RE.sub(
+            lambda match: (
+                match.group(1)
+                if match.group(1).lower().startswith(("http://", "https://"))
+                else match.group(2)
+            ),
+            summary,
+        )
         summary = re.sub(r"\s+([,.;:!?])", r"\1", summary)
         # Normalise excessive blank lines but keep single line breaks (for lists).
         summary = re.sub(r"\n{3,}", "\n\n", summary)
@@ -679,7 +692,8 @@ class CVAnalyzer:
             "bukan daftar teknologi. Jangan melebih-lebihkan kemampuan kandidat.\n\n"
             "Kembalikan SATU objek JSON tanpa Markdown, kunci id dan en. "
             "Setiap nilai adalah fragmen HTML memakai tag <p>, <b>, <i>, <ul>, <ol>, <li> "
-            "tanpa atribut. Struktur sama untuk kedua bahasa:\n"
+            "tanpa atribut. Jangan memakai tag lain seperti <a>; tulis URL sebagai teks biasa. "
+            "Struktur sama untuk kedua bahasa:\n"
             "<p><b>Status Kesesuaian:</b> Kuat / Sedang / Lemah. "
             "Kualifikasi: Berlebih / Kurang / Sesuai — satu alasan singkat.</p>"
             "<p><b>Alasan Kandidat Cocok:</b></p>"

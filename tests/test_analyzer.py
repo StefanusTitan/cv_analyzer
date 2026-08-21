@@ -420,6 +420,23 @@ def test_github_mentions_without_profile_path_are_not_enriched():
     assert github.urls == []
 
 
+def test_anchor_citations_are_unwrapped_to_plain_urls():
+    analysis = (
+        "<p><b>Alasan Kandidat Cocok:</b></p>"
+        "<ul><li>Strong C2 tooling evidence "
+        '<a href="https://github.com/octocat/c2-tool">https://github.com/octocat/c2-tool</a>.</li>'
+        "<li>Public work under a "
+        '<a href="https://github.com/octocat">different label</a>.</li></ul>'
+    )
+
+    summary = CVAnalyzer._prepare_summary(analysis)
+
+    assert "<a" not in summary
+    assert "https://github.com/octocat/c2-tool." in summary
+    assert "https://github.com/octocat.</li>" in summary
+    assert "different label" not in summary
+
+
 def test_linkedin_urls_are_not_sent_to_scraper():
     class RecordingScraper:
         def __init__(self):
