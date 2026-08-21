@@ -9,6 +9,10 @@ import httpx
 from app.core.errors import UpstreamError
 from app.utils.urls import is_github_url
 
+# Repository sources emitted alongside a profile fetch so the LLM can cite
+# specific project URLs even when the CV only links the profile page.
+PROFILE_REPO_SOURCES = 5
+
 
 class GithubClient:
     def __init__(self, client: httpx.AsyncClient, token: str = ""):
@@ -68,7 +72,7 @@ class GithubClient:
                 "GitHub README could not be decoded", 502, "github_invalid_response"
             ) from exc
 
-    async def _profile_source(self, url: str, owner: str) -> dict:
+    async def _profile_sources(self, url: str, owner: str) -> list[dict]:
         profile, repositories = await asyncio.gather(
             self._get(f"https://api.github.com/users/{owner}"),
             self._get(
@@ -84,28 +88,46 @@ class GithubClient:
             "public_repos": profile.get("public_repos"),
             "followers": profile.get("followers"),
             "created_at": profile.get("created_at"),
-            "repositories": [
-                {
-                    "name": repo.get("name"),
-                    "description": repo.get("description"),
-                    "language": repo.get("language"),
-                    "stars": repo.get("stargazers_count"),
-                    "forks": repo.get("forks_count"),
-                    "updated_at": repo.get("updated_at"),
-                }
-                for repo in repositories
-                if isinstance(repo, dict)
-            ],
         }
-        return {
+        profile_source = {
             "id": f"github:{owner}",
             "url": url,
             "type": "github",
             "title": profile.get("name"),
             "excerpt": json.dumps(excerpt, ensure_ascii=False),
         }
+        repo_sources: list[dict] = []
+        for repo in repositories:
+            if not isinstance(repo, dict) or repo.get("fork"):
+                continue
+            source = self._listed_repo_source(owner, repo)
+            if source is not None:
+                repo_sources.append(source)
+            if len(repo_sources) >= PROFILE_REPO_SOURCES:
+                break
+        return [profile_source, *repo_sources]
 
-    async def fetch(self, url: str) -> dict:
+    @staticmethod
+    def _listed_repo_source(owner: str, repo: dict) -> dict | None:
+        name = repo.get("name")
+        if not isinstance(name, str) or not name:
+            return None
+        excerpt = {
+            "description": repo.get("description"),
+            "language": repo.get("language"),
+            "stars": repo.get("stargazers_count"),
+            "forks": repo.get("forks_count"),
+            "updated_at": repo.get("updated_at"),
+        }
+        return {
+            "id": f"github:{owner}/{name}",
+            "url": f"https://github.com/{owner}/{name}",
+            "type": "github",
+            "title": str(repo.get("full_name") or f"{owner}/{name}"),
+            "excerpt": json.dumps(excerpt, ensure_ascii=False),
+        }
+
+    async def fetch(self, url: str) -> list[dict]:
         if not is_github_url(url):
             raise ValueError("Not a GitHub URL")
         parsed = urlsplit(url)
@@ -118,7 +140,7 @@ class GithubClient:
             and parts[0] == "users"
             and len(parts) >= 2
         ):
-            return await self._profile_source(url, parts[1])
+            return await self._profile_sources(url, parts[1])
         if (
             parsed.hostname == "api.github.com"
             and parts[0] == "repos"
@@ -126,7 +148,7 @@ class GithubClient:
         ):
             parts = parts[1:]
         if len(parts) == 1:
-            return await self._profile_source(url, parts[0])
+            return await self._profile_sources(url, parts[0])
 
         owner, repo_name = parts[0], parts[1]
         repo, languages, readme_excerpt = await asyncio.gather(
@@ -159,10 +181,12 @@ class GithubClient:
             "fork": repo.get("fork"),
             "readme": readme_excerpt,
         }
-        return {
-            "id": f"github:{owner}/{repo_name}",
-            "url": url,
-            "type": "github",
-            "title": repo.get("full_name"),
-            "excerpt": json.dumps(excerpt, ensure_ascii=False),
-        }
+        return [
+            {
+                "id": f"github:{owner}/{repo_name}",
+                "url": url,
+                "type": "github",
+                "title": repo.get("full_name"),
+                "excerpt": json.dumps(excerpt, ensure_ascii=False),
+            }
+        ]

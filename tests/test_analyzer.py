@@ -208,6 +208,70 @@ def test_external_evidence_input_identifies_sources_by_url():
     assert "Candidate Profile" not in evidence
 
 
+def test_github_readme_is_included_in_llm_evidence():
+    excerpt = json.dumps(
+        {"description": "CLI tool", "readme": "pip install example-cli"},
+        ensure_ascii=False,
+    )
+
+    formatted = CVAnalyzer._format_excerpt(excerpt, "github")
+
+    assert "README:" in formatted
+    assert "pip install example-cli" in formatted
+
+
+def test_enrichment_dedupes_listed_and_linked_repos_preferring_full_data():
+    class SplitGithub:
+        async def fetch(self, url: str):
+            if url.rstrip("/").endswith("octocat"):
+                return [
+                    {
+                        "id": "github:octocat",
+                        "url": url,
+                        "type": "github",
+                        "title": "Octo",
+                        "excerpt": "profile",
+                    },
+                    {
+                        "id": "github:octocat/hello",
+                        "url": "https://github.com/octocat/hello",
+                        "type": "github",
+                        "title": "hello",
+                        "excerpt": "listed",
+                    },
+                ]
+            return [
+                {
+                    "id": "github:octocat/hello",
+                    "url": url,
+                    "type": "github",
+                    "title": "hello",
+                    "excerpt": "f" * 400,
+                }
+            ]
+
+    service = CVAnalyzer(
+        settings(),
+        FakeLLM(),
+        SplitGithub(),
+        NoopEnricher(),
+        FakeJobPostingClient(),
+    )
+    warnings: list[str] = []
+
+    sources = asyncio.run(
+        service._enrich_all(
+            ["https://github.com/octocat", "https://github.com/octocat/hello"],
+            warnings,
+        )
+    )
+
+    hello = [source for source in sources if source["id"] == "github:octocat/hello"]
+    assert len(hello) == 1
+    assert len(hello[0]["excerpt"]) == 400
+    assert any(source["id"] == "github:octocat" for source in sources)
+
+
 def test_analyzer_returns_narrative_and_closes_upload():
     data = Pdf.from_text("Candidate built a production Python API").to_bytes()
     upload = UploadFile(filename="candidate.pdf", file=io.BytesIO(data))

@@ -28,6 +28,17 @@ def test_stable_urls_ignores_invalid_values_and_preserves_order():
     ]
 
 
+def test_stable_urls_skipped_hosts_do_not_consume_cap_slots():
+    values = [
+        "https://www.linkedin.com/in/candidate",
+        "https://github.com/user",
+        "https://github.com/user/repo",
+    ]
+    assert stable_urls(values, 1, skip=is_skippable_enrichment_url) == [
+        "https://github.com/user",
+    ]
+
+
 def test_private_ip_detection():
     assert is_private_ip("10.0.0.1")
     assert is_private_ip("169.254.169.254")

@@ -1,4 +1,5 @@
 import ipaddress
+from collections.abc import Callable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 _TRACKING_PARAMS = {"fbclid", "gclid", "mc_cid", "mc_eid"}
@@ -71,12 +72,23 @@ def is_private_ip(host: str) -> bool:
     )
 
 
-def stable_urls(values: list[object], limit: int) -> list[str]:
+def stable_urls(
+    values: list[object],
+    limit: int,
+    skip: Callable[[str], bool] | None = None,
+) -> list[str]:
+    """Normalize, dedupe, and cap URLs in discovery order.
+
+    URLs matching ``skip`` are dropped before the cap is applied so hosts
+    that can never be enriched do not consume enrichment slots.
+    """
     result: list[str] = []
     seen: set[str] = set()
     for value in values:
         url = normalize_url(value)
         if url and url not in seen:
+            if skip is not None and skip(url):
+                continue
             result.append(url)
             seen.add(url)
             if len(result) >= limit:

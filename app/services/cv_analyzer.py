@@ -11,7 +11,12 @@ from app.core.errors import AnalysisError, UploadError, UpstreamError
 from app.schemas.cv import AnalyzeResult
 from app.services.document_extractor import detect_kind, extract
 from app.utils.log import logger
-from app.utils.urls import is_github_url, is_skippable_enrichment_url, stable_urls
+from app.utils.urls import (
+    is_github_url,
+    is_skippable_enrichment_url,
+    normalize_url,
+    stable_urls,
+)
 
 URL_RE = re.compile(r"https?://[^\s<>\"\]\)]+", re.IGNORECASE)
 SUMMARY_CITATION_RE = re.compile(
@@ -290,9 +295,22 @@ class CVAnalyzer:
 
                 cv_ready_at = time.perf_counter()
                 stage = "enrich"
+                discovered = URL_RE.findall(cv)
+                # Report auth-walled hosts up front; they must not consume
+                # enrichment slots reserved for enrichable links.
+                for url in dict.fromkeys(
+                    normalized
+                    for value in discovered
+                    if (normalized := normalize_url(value))
+                    and is_skippable_enrichment_url(normalized)
+                ):
+                    warnings.append(
+                        f"Could not enrich {url}: website_access_restricted"
+                    )
                 urls = stable_urls(
-                    URL_RE.findall(cv),
+                    discovered,
                     self.settings.scrape_max_links,
+                    skip=is_skippable_enrichment_url,
                 )
                 urls_ready_at = time.perf_counter()
                 enriched = await self._enrich_all(urls, warnings)
@@ -423,24 +441,36 @@ class CVAnalyzer:
             if task in timed_out or task.cancelled() or task.exception() is not None:
                 continue
             result = task.result()
-            if result is not None:
-                sources.append(result)
-        return sources
+            if result:
+                sources.extend(result)
 
-    async def _enrich(self, url: str, warnings: list[str]) -> dict | None:
+        # A profile listing and an explicitly linked repository can both
+        # produce a source for the same repo; keep the richer excerpt.
+        deduped: dict[str, dict] = {}
+        for source in sources:
+            source_id = str(source.get("id") or "")
+            existing = deduped.get(source_id)
+            if existing is None or len(str(source.get("excerpt") or "")) > len(
+                str(existing.get("excerpt") or "")
+            ):
+                deduped[source_id] = source
+        return list(deduped.values())
+
+    async def _enrich(self, url: str, warnings: list[str]) -> list[dict]:
         try:
             if is_github_url(url):
                 # GitHub is plain HTTP; do not compete for browser scrape slots.
                 return await self.github.fetch(url)
             async with self.enrichment_semaphore:
-                return await self.scraper.fetch(url)
+                source = await self.scraper.fetch(url)
+            return [source] if source else []
         except AnalysisError as exc:
             warnings.append(f"Could not enrich {url}: {exc.code}")
         except (OSError, ValueError) as exc:
             warnings.append(f"Could not enrich {url}: {type(exc).__name__}")
         except asyncio.CancelledError:
             raise
-        return None
+        return []
 
     @staticmethod
     def _invalid_llm_response() -> UpstreamError:
@@ -597,29 +627,13 @@ class CVAnalyzer:
     @staticmethod
     def _format_github_data(data: dict) -> str:
         lines: list[str] = []
-        skip_keys = {"readme", "html_url"}
+        skip_keys = {"html_url"}
         for key, value in data.items():
             if key in skip_keys:
                 continue
-            if key == "repositories" and isinstance(value, list):
-                lines.append("Repositories:")
-                for repo in value:
-                    if isinstance(repo, dict):
-                        name = repo.get("name", "?")
-                        desc = repo.get("description") or ""
-                        lang = repo.get("language") or ""
-                        stars = repo.get("stars", 0)
-                        parts_rep = [f"  - {name}"]
-                        if desc:
-                            parts_rep.append(f": {desc}")
-                        meta = []
-                        if lang:
-                            meta.append(lang)
-                        if stars:
-                            meta.append(f"{stars}★")
-                        if meta:
-                            parts_rep.append(f" [{', '.join(meta)}]")
-                        lines.append("".join(parts_rep))
+            if key == "readme" and isinstance(value, str) and value.strip():
+                lines.append("README:")
+                lines.append(value.strip())
             elif key == "languages" and isinstance(value, dict):
                 if value:
                     langs = ", ".join(
