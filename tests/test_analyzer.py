@@ -356,6 +356,70 @@ def test_enrichment_budget_keeps_finished_sources_and_continues():
     assert "Fast" in llm.user_prompt or "fast.example.test" in llm.user_prompt
 
 
+def test_bare_github_reference_is_discovered_and_enriched():
+    class RecordingGithub:
+        def __init__(self):
+            self.urls: list[str] = []
+
+        async def fetch(self, url: str):
+            self.urls.append(url)
+            return [
+                {
+                    "id": "github:octocat",
+                    "url": url,
+                    "type": "github",
+                    "title": "Octo",
+                    "excerpt": json.dumps({"bio": "Builder"}),
+                }
+            ]
+
+    data = Pdf.from_text("GitHub: github.com/octocat").to_bytes()
+    upload = UploadFile(filename="cv.pdf", file=io.BytesIO(data))
+    github = RecordingGithub()
+    service = CVAnalyzer(
+        settings(),
+        FakeLLM(),
+        github,
+        NoopEnricher(),
+        FakeJobPostingClient(),
+    )
+
+    result = asyncio.run(
+        service.analyze("32a594ac-9e1b-4a9e-a3be-6e6ca87db8ff", [upload])
+    )
+
+    assert github.urls == ["https://github.com/octocat"]
+    assert "github:octocat" in {source.id for source in result.sources}
+    assert any(source.type == "github" for source in result.sources)
+
+
+def test_github_mentions_without_profile_path_are_not_enriched():
+    class RecordingGithub:
+        def __init__(self):
+            self.urls: list[str] = []
+
+        async def fetch(self, url: str):
+            self.urls.append(url)
+            return []
+
+    data = Pdf.from_text(
+        "Email someone@github.com or see gist.github.com/octocat/abc"
+    ).to_bytes()
+    upload = UploadFile(filename="cv.pdf", file=io.BytesIO(data))
+    github = RecordingGithub()
+    service = CVAnalyzer(
+        settings(),
+        FakeLLM(),
+        github,
+        NoopEnricher(),
+        FakeJobPostingClient(),
+    )
+
+    asyncio.run(service.analyze("32a594ac-9e1b-4a9e-a3be-6e6ca87db8ff", [upload]))
+
+    assert github.urls == []
+
+
 def test_linkedin_urls_are_not_sent_to_scraper():
     class RecordingScraper:
         def __init__(self):

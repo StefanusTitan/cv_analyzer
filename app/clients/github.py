@@ -29,6 +29,12 @@ class GithubClient:
             headers["Authorization"] = f"Bearer {self.token}"
         try:
             response = await self.client.get(endpoint, headers=headers)
+            if response.status_code == 401:
+                raise UpstreamError(
+                    "GitHub rejected the configured access token",
+                    502,
+                    "github_auth_failed",
+                )
             if response.status_code == 404:
                 raise UpstreamError(
                     "The GitHub resource was not found", 404, "github_not_found"

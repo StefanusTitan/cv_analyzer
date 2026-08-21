@@ -5,6 +5,7 @@ import json
 import httpx
 
 from app.clients.github import PROFILE_REPO_SOURCES, GithubClient
+from app.core.errors import UpstreamError
 
 
 def test_profile_fetch_emits_citable_repository_sources():
@@ -64,6 +65,24 @@ def test_profile_fetch_emits_citable_repository_sources():
     listed = json.loads(sources[1]["excerpt"])
     assert listed["description"] == "A project"
     assert listed["language"] == "Python"
+
+
+def test_invalid_token_maps_to_auth_failed_code():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"message": "Bad credentials"})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            await GithubClient(client, token="expired").fetch(
+                "https://github.com/octocat"
+            )
+
+    try:
+        asyncio.run(run())
+    except UpstreamError as exc:
+        assert exc.code == "github_auth_failed"
+    else:
+        raise AssertionError("expected github_auth_failed")
 
 
 def test_repo_fetch_returns_single_source_including_readme():

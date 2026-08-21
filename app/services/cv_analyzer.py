@@ -19,6 +19,12 @@ from app.utils.urls import (
 )
 
 URL_RE = re.compile(r"https?://[^\s<>\"\]\)]+", re.IGNORECASE)
+# CVs often reference GitHub without a scheme ("github.com/user"); recover
+# those so enrichment does not depend on the candidate writing https://.
+BARE_GITHUB_URL_RE = re.compile(
+    r"(?<![\w@./-])(?:www\.)?github\.com/[^\s<>\"\]\)]+",
+    re.IGNORECASE,
+)
 SUMMARY_CITATION_RE = re.compile(
     r"\[(?:(?:document|github|web):[^\[\]]+|job_description|cv_and_resume)\]",
     re.IGNORECASE,
@@ -295,7 +301,16 @@ class CVAnalyzer:
 
                 cv_ready_at = time.perf_counter()
                 stage = "enrich"
-                discovered = URL_RE.findall(cv)
+                matches = [
+                    (match.start(), match.group(0)) for match in URL_RE.finditer(cv)
+                ]
+                matches += [
+                    (match.start(), f"https://{match.group(0)}")
+                    for match in BARE_GITHUB_URL_RE.finditer(cv)
+                ]
+                discovered = [
+                    value for _, value in sorted(matches, key=lambda item: item[0])
+                ]
                 # Report auth-walled hosts up front; they must not consume
                 # enrichment slots reserved for enrichable links.
                 for url in dict.fromkeys(
