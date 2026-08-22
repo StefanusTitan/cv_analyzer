@@ -42,7 +42,7 @@ class LLMClient:
                     {"role": "system", "content": [{"text": system}]},
                     {"role": "user", "content": [{"text": user}]},
                 ],
-                temperature=0.3,
+                temperature=0.0,
                 max_tokens=max_tokens or self.max_output_tokens,
                 enable_thinking=self.enable_thinking,
                 request_timeout=self.timeout_seconds,
