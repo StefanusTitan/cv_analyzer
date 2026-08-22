@@ -98,6 +98,49 @@ def test_source_budget_preserves_all_metadata_and_shares_excerpt_space():
     assert truncated
 
 
+def test_analysis_sources_keep_documents_and_substantive_external_evidence():
+    sources = [
+        {
+            "id": "document:0",
+            "type": "document",
+            "excerpt": None,
+        },
+        {
+            "id": "github:profile",
+            "type": "github",
+            "excerpt": json.dumps({"bio": "Engineer", "public_repos": 10}),
+        },
+        {
+            "id": "github:thin",
+            "type": "github",
+            "excerpt": json.dumps({"language": "TypeScript", "updated_at": "2026"}),
+        },
+        {
+            "id": "github:description-only",
+            "type": "github",
+            "excerpt": json.dumps({"description": "Production API"}),
+        },
+        {
+            "id": "github:useful",
+            "type": "github",
+            "excerpt": json.dumps({"readme": "Production API documentation"}),
+        },
+        {
+            "id": "web:useful",
+            "type": "website",
+            "excerpt": "Public project documentation",
+        },
+    ]
+
+    selected = CVAnalyzer._analysis_sources(sources)
+
+    assert [source["id"] for source in selected] == [
+        "document:0",
+        "github:useful",
+        "web:useful",
+    ]
+
+
 def test_document_budget_uses_upload_identity_for_duplicate_names():
     service = analyzer(cv_max_extracted_chars=180)
     text, included_ids, truncated = service._build_cv(
@@ -163,10 +206,17 @@ def test_analysis_prompt_requires_html_and_forbids_markdown():
     assert "dampak pengalaman terhadap pekerjaan" in prompt
     assert "<p><b>Rekomendasi untuk HR:</b>" in prompt
     assert "Pertanyaan Wawancara yang Disarankan" not in prompt
-    assert "SOURCE URL" in prompt
-    assert "mengarang URL" in prompt
-    assert "[GitHub]" in prompt
-    assert "sebagai pengganti URL" in prompt
+    assert "token sumber seperti [[S1]]" in prompt
+    assert "token dokumen" in prompt
+    assert "tidak membuktikan pengalaman kerja" in prompt
+    assert "tanyakan waktu mulai yang diinginkan secara netral" in prompt
+    assert "Jangan mengaitkan teknologi proyek dengan pengalaman kerja" in prompt
+    assert "bukan membuktikan kemahiran atau kualitas" in prompt
+    assert "Manifest hanya menunjukkan dependensi dan skrip" in prompt
+    assert "satu alasan singkat [[S1]]" in prompt
+    assert "Persyaratan di JOB DESCRIPTION bukan bukti pengalaman kandidat" in prompt
+    assert "Hindari kata menguasai" in prompt
+    assert "jangan membuat token baru" in prompt
     assert "data tidak tepercaya" in prompt
 
 
@@ -186,6 +236,93 @@ def test_bilingual_summary_accepts_fenced_json_and_rejects_missing_language():
         raise AssertionError("expected llm_invalid_response")
 
 
+def test_bilingual_summary_resolves_trusted_source_tokens_without_rejecting_gaps():
+    sources = [
+        {
+            "id": "document:0",
+            "url": "document://0/candidate-resume.pdf",
+            "type": "document",
+            "title": "candidate-resume.pdf",
+        },
+        {
+            "id": "github:candidate/project",
+            "url": "https://github.com/candidate/project",
+            "type": "github",
+            "title": "candidate/project",
+        },
+        {
+            "id": "github:candidate/other",
+            "url": "https://github.com/candidate/other",
+            "type": "github",
+            "title": "candidate/other",
+        },
+    ]
+    raw = json.dumps(
+        {
+            "id": (
+                "<ul><li>Pengalaman produksi [[S1]].</li>"
+                "<li>Proyek publik [[S2]][[S3]] [[S99]] https://example.com/invented.</li></ul>"
+            ),
+            "en": (
+                "<ul><li>Production experience [[S1]].</li>"
+                "<li>Public project [[S2]][[S3]] [[S99]] https://example.com/invented.</li></ul>"
+            ),
+        }
+    )
+
+    indonesian, english = CVAnalyzer._prepare_bilingual_summary(raw, sources)
+
+    assert "Pengalaman produksi [Resume]." in indonesian
+    assert "Production experience [Resume]." in english
+    assert "https://github.com/candidate/project" in indonesian
+    assert "https://github.com/candidate/project" in english
+    assert "https://github.com/candidate/project https://github.com/candidate/other" in indonesian
+    assert "https://github.com/candidate/project https://github.com/candidate/other" in english
+    assert "S99" not in indonesian
+    assert "S99" not in english
+    assert "example.com" not in indonesian
+    assert "example.com" not in english
+
+
+def test_summary_repairs_stray_list_closing_tag_after_heading():
+    summary = CVAnalyzer._prepare_summary(
+        "<p><b>What to confirm:</b></ul><ul><li>Testing depth.</li></ul>"
+    )
+
+    assert summary == (
+        "<p><b>What to confirm:</b></p><ul><li>Testing depth.</li></ul>"
+    )
+
+
+def test_document_citation_labels_number_repeated_types_only():
+    sources = [
+        {
+            "id": "document:0",
+            "url": "document://0/first-cv.pdf",
+            "type": "document",
+            "title": "first-cv.pdf",
+        },
+        {
+            "id": "document:1",
+            "url": "document://1/resume.pdf",
+            "type": "document",
+            "title": "resume.pdf",
+        },
+        {
+            "id": "document:2",
+            "url": "document://2/second-cv.pdf",
+            "type": "document",
+            "title": "second-cv.pdf",
+        },
+    ]
+
+    assert CVAnalyzer._citation_replacements(sources) == {
+        "1": "[CV 1]",
+        "2": "[Resume]",
+        "3": "[CV 2]",
+    }
+
+
 def test_external_evidence_input_identifies_sources_by_url():
     evidence = CVAnalyzer._format_llm_input(
         "job-id",
@@ -203,14 +340,24 @@ def test_external_evidence_input_identifies_sources_by_url():
         ],
     )
 
+    assert "[[S1]] WEBSITE: https://example.com/profile" in evidence
+    assert "--- WEBSITE [[S1]] ---" in evidence
     assert "SOURCE URL: https://example.com/profile" in evidence
-    assert "bukan judul, nama sumber, atau label" in evidence
+    assert "Gunakan token sumber" in evidence
     assert "Candidate Profile" not in evidence
 
 
 def test_github_readme_is_included_in_llm_evidence():
     excerpt = json.dumps(
-        {"description": "CLI tool", "readme": "pip install example-cli"},
+        {
+            "description": "CLI tool",
+            "readme": "pip install example-cli",
+            "package": {
+                "name": "example-cli",
+                "dependencies": ["next", "react"],
+                "scripts": ["build", "test"],
+            },
+        },
         ensure_ascii=False,
     )
 
@@ -218,6 +365,8 @@ def test_github_readme_is_included_in_llm_evidence():
 
     assert "README:" in formatted
     assert "pip install example-cli" in formatted
+    assert "PACKAGE.JSON:" in formatted
+    assert "declared dependencies: next, react" in formatted
 
 
 def test_enrichment_dedupes_listed_and_linked_repos_preferring_full_data():
@@ -287,6 +436,7 @@ def test_analyzer_returns_narrative_and_closes_upload():
     assert "[document:0]" not in result.analysis
     assert "[document:0]" not in result.analysis_en
     assert result.sources[0].id == "document:0"
+    assert "Analysis completed without supported source citations" in result.warnings
     assert service.llm.calls == 1
     assert service.llm.max_tokens == 2500
     assert upload.file.closed

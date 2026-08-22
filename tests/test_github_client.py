@@ -88,6 +88,15 @@ def test_invalid_token_maps_to_auth_failed_code():
 def test_repo_fetch_returns_single_source_including_readme():
     readme_content = "# hello-world\n\nBuilt with Python."
     encoded = base64.b64encode(readme_content.encode()).decode()
+    package_content = json.dumps(
+        {
+            "name": "hello-world",
+            "scripts": {"test": "pytest", "hidden": "do not expose"},
+            "dependencies": {"next": "1.0", "react": "1.0"},
+            "devDependencies": {"typescript": "1.0"},
+        }
+    )
+    encoded_package = base64.b64encode(package_content.encode()).decode()
 
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -105,6 +114,8 @@ def test_repo_fetch_returns_single_source_including_readme():
             return httpx.Response(200, json={"Python": 1200})
         if path == "/repos/octocat/hello-world/readme":
             return httpx.Response(200, json={"content": encoded})
+        if path == "/repos/octocat/hello-world/contents/package.json":
+            return httpx.Response(200, json={"content": encoded_package})
         raise AssertionError(f"Unexpected endpoint {path}")
 
     async def run():
@@ -119,3 +130,9 @@ def test_repo_fetch_returns_single_source_including_readme():
     assert sources[0]["id"] == "github:octocat/hello-world"
     payload = json.loads(sources[0]["excerpt"])
     assert payload["readme"] == readme_content
+    assert payload["package"] == {
+        "name": "hello-world",
+        "dependencies": ["next", "react"],
+        "devDependencies": ["typescript"],
+        "scripts": ["hidden", "test"],
+    }

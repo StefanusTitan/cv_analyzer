@@ -39,8 +39,9 @@ def test_text_completion_uses_native_multimodal_api(monkeypatch):
             {"role": "system", "content": [{"text": "system prompt"}]},
             {"role": "user", "content": [{"text": "user prompt"}]},
         ],
-        temperature=0.0,
+        temperature=0.3,
         max_tokens=1_200,
         enable_thinking=False,
+        response_format={"type": "json_object"},
         request_timeout=90,
     )

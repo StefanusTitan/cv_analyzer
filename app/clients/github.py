@@ -78,6 +78,40 @@ class GithubClient:
                 "GitHub README could not be decoded", 502, "github_invalid_response"
             ) from exc
 
+    async def _package_manifest(self, owner: str, repo_name: str) -> dict | None:
+        try:
+            manifest = await self._get(
+                f"https://api.github.com/repos/{owner}/{repo_name}/contents/package.json"
+            )
+        except UpstreamError as exc:
+            if exc.status_code == 404:
+                return None
+            raise
+        if not isinstance(manifest, dict):
+            return None
+        encoded = manifest.get("content")
+        if not isinstance(encoded, str) or not encoded:
+            return None
+        try:
+            payload = json.loads(base64.b64decode(encoded).decode("utf-8"))
+        except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+
+        summary: dict[str, str | list[str]] = {}
+        name = payload.get("name")
+        if isinstance(name, str) and name:
+            summary["name"] = name[:200]
+        for key in ("dependencies", "devDependencies"):
+            values = payload.get(key)
+            if isinstance(values, dict):
+                summary[key] = sorted(str(value)[:200] for value in values)[:100]
+        scripts = payload.get("scripts")
+        if isinstance(scripts, dict):
+            summary["scripts"] = sorted(str(value)[:200] for value in scripts)[:50]
+        return summary or None
+
     async def _profile_sources(self, url: str, owner: str) -> list[dict]:
         profile, repositories = await asyncio.gather(
             self._get(f"https://api.github.com/users/{owner}"),
@@ -157,10 +191,11 @@ class GithubClient:
             return await self._profile_sources(url, parts[0])
 
         owner, repo_name = parts[0], parts[1]
-        repo, languages, readme_excerpt = await asyncio.gather(
+        repo, languages, readme_excerpt, package_manifest = await asyncio.gather(
             self._get(f"https://api.github.com/repos/{owner}/{repo_name}"),
             self._get(f"https://api.github.com/repos/{owner}/{repo_name}/languages"),
             self._readme_excerpt(owner, repo_name),
+            self._package_manifest(owner, repo_name),
         )
         if not isinstance(repo, dict) or not isinstance(languages, dict):
             raise UpstreamError(
@@ -186,6 +221,7 @@ class GithubClient:
             "archived": repo.get("archived"),
             "fork": repo.get("fork"),
             "readme": readme_excerpt,
+            "package": package_manifest,
         }
         return [
             {
