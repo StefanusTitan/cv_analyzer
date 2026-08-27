@@ -19,12 +19,14 @@ async def analyze_cv(
     # Optional so a missing ``files`` field surfaces as the ``missing_files``
     # contract code rather than a framework validation error shape.
     files: Annotated[list[UploadFile] | None, File()] = None,
+    links: Annotated[list[str] | None, Form()] = None,
 ):
     try:
         result = await request.app.state.cv_analyzer.analyze(
             job_posting_id,
             files,
             request_id=getattr(request.state, "request_id", None),
+            links=links,
         )
         return {"message": "CV analyzed successfully", "result": result}
     except AnalysisError as exc:

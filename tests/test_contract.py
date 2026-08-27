@@ -181,9 +181,12 @@ async def post(
     *,
     job_posting_id: str = JOB_POSTING_ID,
     files: list[tuple[str, tuple[str, bytes, str]]] | None = None,
+    links: list[str] | None = None,
     omit_files: bool = False,
 ) -> httpx.Response:
     data = {"job_posting_id": job_posting_id}
+    if links is not None:
+        data["links"] = links
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         kwargs: dict[str, Any] = {"data": data}
@@ -265,6 +268,38 @@ def test_multiple_accepted_files_still_work():
     assert len(result["sources"]) == 2
     assert result["analysis"]
     assert result["analysis_en"]
+
+
+def test_selected_portfolio_link_is_enriched():
+    class RecordingScraper:
+        def __init__(self):
+            self.urls: list[str] = []
+
+        async def fetch(self, url: str):
+            self.urls.append(url)
+            return {
+                "id": "web:portfolio",
+                "url": url,
+                "type": "website",
+                "title": "Portfolio",
+                "excerpt": "Production application portfolio",
+            }
+
+    scraper = RecordingScraper()
+    app = build_app(
+        make_analyzer(
+            settings=make_settings(scrape_max_links=1),
+            scraper=scraper,
+        )
+    )
+    portfolio_url = "https://portfolio.example.test/candidate"
+    response = run(post(app, links=[portfolio_url], omit_files=True))
+
+    assert response.status_code == 200
+    assert scraper.urls == [portfolio_url]
+    assert "web:portfolio" in {
+        source["id"] for source in response.json()["result"]["sources"]
+    }
 
 
 def test_success_response_preserves_result_analysis_field():

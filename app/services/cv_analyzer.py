@@ -272,16 +272,17 @@ class CVAnalyzer:
     async def analyze(
         self,
         job_posting_id: str,
-        files: list[UploadFile],
+        files: list[UploadFile] | None,
         request_id: str | None = None,
+        links: list[str] | None = None,
     ) -> AnalyzeResult:
         started = time.perf_counter()
         stage = "validate_upload"
-        if not files:
+        if not files and not links:
             error = UploadError("At least one file is required", 400, "missing_files")
             self._log_failure(request_id, stage, error.code, error.status_code)
             raise error
-        if len(files) > self.settings.cv_max_files:
+        if files and len(files) > self.settings.cv_max_files:
             error = UploadError(
                 f"Maximum {self.settings.cv_max_files} files are allowed",
                 400,
@@ -289,6 +290,7 @@ class CVAnalyzer:
             )
             self._log_failure(request_id, stage, error.code, error.status_code)
             raise error
+        files = files or []
 
         warnings: list[str] = []
         sources: list[dict] = []
@@ -301,9 +303,14 @@ class CVAnalyzer:
                 # Job lookup and document prep are independent until the LLM step.
                 stage = "job_and_documents"
                 parallel_started = time.perf_counter()
+                document_task = (
+                    self._prepare_documents(files, directory)
+                    if files
+                    else asyncio.sleep(0, result=([], []))
+                )
                 job_posting, prepared = await asyncio.gather(
                     self.job_postings.fetch(job_posting_id),
-                    self._prepare_documents(files, directory),
+                    document_task,
                 )
                 prepared_at = time.perf_counter()
                 documents, prep_warnings = prepared
@@ -337,7 +344,7 @@ class CVAnalyzer:
                     (match.start(), f"https://{match.group(0)}")
                     for match in BARE_GITHUB_URL_RE.finditer(cv)
                 ]
-                discovered = [
+                discovered = list(links or []) + [
                     value for _, value in sorted(matches, key=lambda item: item[0])
                 ]
                 # Report auth-walled hosts up front; they must not consume
@@ -735,7 +742,7 @@ class CVAnalyzer:
             parts.append("")
             parts.append("=== EXTERNAL EVIDENCE ===")
             parts.append(
-                "Temuan dari URL yang ditemukan di CV. Gunakan token sumber yang "
+                "Temuan dari URL yang diberikan dalam data kandidat. Gunakan token sumber yang "
                 "tercantum pada setiap sumber saat bukti ini mendukung klaim."
             )
             parts.append("")
