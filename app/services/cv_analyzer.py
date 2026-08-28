@@ -391,7 +391,7 @@ class CVAnalyzer:
                         cv,
                         analysis_sources,
                     ),
-                    max_tokens=2500,
+                    max_tokens=self.settings.llm_max_output_tokens,
                 )
                 stage = "format"
                 analysis, analysis_en = self._prepare_bilingual_summary(
@@ -821,8 +821,11 @@ class CVAnalyzer:
             "Nilai kandidat berdasarkan JOB TITLE dan JOB DESCRIPTION.\n\n"
             "Tulis satu penilaian, lalu isi id dan en dengan terjemahan setia "
             "(verdict, poin, dan URL sama). Jangan menilai ulang. "
-            "Maksimal 300 kata per bahasa. Jelaskan dampak pengalaman terhadap pekerjaan, "
-            "bukan daftar teknologi. Jangan melebih-lebihkan kemampuan kandidat.\n\n"
+            "Cantumkan setiap fakta relevan yang memengaruhi keputusan HR dan didukung bukti; "
+            "jangan membatasi jumlah poin, panjang poin, atau jumlah kata. "
+            "Jelaskan dampak pengalaman terhadap pekerjaan, "
+            "bukan daftar teknologi. Jangan melebih-lebihkan kemampuan kandidat. "
+            "Jangan mengulang bukti yang sama atau merangkum seluruh CV.\n\n"
             "Kembalikan SATU objek JSON tanpa Markdown, kunci id dan en. "
             "Setiap nilai adalah fragmen HTML memakai tag <p>, <b>, <i>, <ul>, <ol>, <li> "
             "tanpa atribut. Jangan memakai tag lain seperti <a>; tulis URL sebagai teks biasa. "
@@ -830,9 +833,9 @@ class CVAnalyzer:
             "<p><b>Status Kesesuaian:</b> Kuat / Sedang / Lemah. "
             "Kualifikasi: Berlebih / Kurang / Sesuai — satu alasan singkat [[S1]].</p>"
             "<p><b>Alasan Kandidat Cocok:</b></p>"
-            "<ul><li>Dua sampai tiga poin; satu sampai dua kalimat per poin [[S1]].</li></ul>"
+            "<ul><li>Setiap fakta relevan yang didukung bukti; jelaskan dampaknya bagi pekerjaan [[S1]].</li></ul>"
             "<p><b>Hal yang Perlu Dipastikan:</b></p>"
-            "<ul><li>Dua sampai tiga poin; satu sampai dua kalimat per poin.</li></ul>"
+            "<ul><li>Setiap risiko atau persyaratan yang belum terbukti; jelaskan mengapa perlu dikonfirmasi.</li></ul>"
             "<p><b>Rekomendasi untuk HR:</b> Satu kalimat dengan langkah berikutnya yang jelas.</p>\n"
             "Heading en: Fit, Why they fit, What to confirm, Recommendation for HR. "
             "Verdict en: Strong / Moderate / Weak. "

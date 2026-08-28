@@ -65,6 +65,7 @@ def make_settings(**overrides: Any) -> SimpleNamespace:
         "scrape_max_links": 0,
         "scrape_concurrency": 2,
         "enrichment_budget_seconds": 8.0,
+        "llm_max_output_tokens": 8_000,
         "request_max_size_bytes": 25_000_000,
         "job_posting_api_url": "https://gateway.test/job-posting",
         "job_description_max_chars": 20_000,

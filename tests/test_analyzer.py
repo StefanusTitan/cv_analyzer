@@ -60,6 +60,7 @@ def settings(**overrides):
         "scrape_max_links": 10,
         "scrape_concurrency": 2,
         "enrichment_budget_seconds": 8.0,
+        "llm_max_output_tokens": 8_000,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -201,8 +202,11 @@ def test_analysis_prompt_requires_html_and_forbids_markdown():
     assert "akumulasi tahun pengalaman kerja" in prompt
     assert "jika disebutkan" in prompt
     assert "jangan mengarang ambang tahun" in prompt
-    assert "Maksimal 300 kata per bahasa" in prompt
-    assert "Dua sampai tiga poin" in prompt
+    assert "Maksimal 300 kata" not in prompt
+    assert "Dua sampai tiga poin" not in prompt
+    assert "satu sampai dua kalimat" not in prompt
+    assert "setiap fakta relevan" in prompt
+    assert "jangan membatasi jumlah poin" in prompt
     assert "dampak pengalaman terhadap pekerjaan" in prompt
     assert "<p><b>Rekomendasi untuk HR:</b>" in prompt
     assert "Pertanyaan Wawancara yang Disarankan" not in prompt
@@ -438,7 +442,7 @@ def test_analyzer_returns_narrative_and_closes_upload():
     assert result.sources[0].id == "document:0"
     assert "Analysis completed without supported source citations" in result.warnings
     assert service.llm.calls == 1
-    assert service.llm.max_tokens == 2500
+    assert service.llm.max_tokens == service.settings.llm_max_output_tokens
     assert upload.file.closed
 
 

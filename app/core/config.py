@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     # Partial results are kept and analysis proceeds when the budget elapses.
     enrichment_budget_seconds: float = Field(default=8.0, ge=1.0, le=60.0)
     llm_timeout_seconds: int = Field(default=90, ge=1, le=300)
-    llm_max_output_tokens: int = Field(default=2_500, ge=256, le=16_000)
+    llm_max_output_tokens: int = Field(default=8_000, ge=256, le=16_000)
     llm_enable_thinking: bool = False
 
     def validate_runtime(self) -> None:
