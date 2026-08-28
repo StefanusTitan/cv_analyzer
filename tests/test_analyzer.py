@@ -795,6 +795,45 @@ def test_media_routing_and_telemetry_exclude_candidate_urls(monkeypatch):
     assert "private-candidate-path" not in json.dumps(telemetry)
 
 
+def test_llm_input_is_logged_before_completion(monkeypatch):
+    class RecordingLogger:
+        def __init__(self):
+            self.records: list[dict] = []
+
+        def bind(self, **extra):
+            self.records.append({"extra": extra})
+            return self
+
+        def info(self, message: str):
+            if self.records:
+                self.records[-1]["message"] = message
+
+    recording_logger = RecordingLogger()
+    monkeypatch.setattr(cv_analyzer_module, "logger", recording_logger)
+    data = Pdf.from_text("Candidate built a production Python API").to_bytes()
+    upload = UploadFile(filename="candidate.pdf", file=io.BytesIO(data))
+    service = analyzer()
+
+    asyncio.run(
+        service.analyze("32a594ac-9e1b-4a9e-a3be-6e6ca87db8ff", [upload])
+    )
+
+    llm_input = next(
+        record
+        for record in recording_logger.records
+        if record["extra"].get("event") == "llm_input"
+    )
+    llm = llm_input["extra"]["llm"]
+    assert llm_input["message"] == "LLM analysis input"
+    assert "Kamu adalah asisten rekrutmen" in llm["system"]
+    assert "JOB TITLE: Backend Engineer" in llm["user"]
+    assert "Candidate built a production Python API" in llm["user"]
+    assert "=== CV / RESUME ===" in llm["user"]
+    assert llm["system_chars"] == len(llm["system"])
+    assert llm["user_chars"] == len(llm["user"])
+    assert llm["max_output"] == service.settings.llm_max_output_tokens
+
+
 def test_github_mentions_without_profile_path_are_not_enriched():
     class RecordingGithub:
         def __init__(self):

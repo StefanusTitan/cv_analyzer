@@ -396,15 +396,29 @@ class CVAnalyzer:
                 evidence_prepared_at = time.perf_counter()
 
                 stage = "llm"
+                system_prompt = self._analysis_prompt()
+                user_prompt = self._format_llm_input(
+                    job_posting.id,
+                    job_title,
+                    job_description,
+                    cv,
+                    analysis_sources,
+                )
+                logger.bind(
+                    request_id=request_id,
+                    component="analyze",
+                    event="llm_input",
+                    llm={
+                        "system": system_prompt,
+                        "user": user_prompt,
+                        "system_chars": len(system_prompt),
+                        "user_chars": len(user_prompt),
+                        "max_output": self.settings.llm_max_output_tokens,
+                    },
+                ).info("LLM analysis input")
                 raw_analysis = await self.llm.text_completion(
-                    self._analysis_prompt(),
-                    self._format_llm_input(
-                        job_posting.id,
-                        job_title,
-                        job_description,
-                        cv,
-                        analysis_sources,
-                    ),
+                    system_prompt,
+                    user_prompt,
                     max_tokens=self.settings.llm_max_output_tokens,
                 )
                 stage = "format"

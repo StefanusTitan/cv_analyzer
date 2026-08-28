@@ -71,6 +71,9 @@ class Logger:
         "status_code",
         *_HTTP_EXTRA_KEYS,
     }
+    _UNTRUNCATED_EXTRA_KEYS: ClassVar[set[str]] = {
+        "llm",
+    }
 
     def serialize(self, record):
         extra = record["extra"]
@@ -107,7 +110,12 @@ class Logger:
         for key, value in extra.items():
             if key in self._STRUCTURED_EXTRA_KEYS or key in subset:
                 continue
-            subset[key] = self._truncate_data(self._mask_data(value))
+            masked = self._mask_data(value)
+            subset[key] = (
+                masked
+                if key in self._UNTRUNCATED_EXTRA_KEYS
+                else self._truncate_data(masked)
+            )
         indent = 2 if self.pretty_json else None
         return json.dumps(
             self._omit_empty(subset), default=str, ensure_ascii=False, indent=indent

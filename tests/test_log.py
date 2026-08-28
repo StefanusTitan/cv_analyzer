@@ -119,3 +119,28 @@ def test_serialize_preserves_aggregate_enrichment_without_candidate_details():
         "youtube": 1,
     }
     assert "url" not in json.dumps(payload["enrichment"]).lower()
+
+
+def test_serialize_keeps_full_llm_input():
+    user = "JOB TITLE: Backend Engineer\n" + ("x" * 5000)
+    payload = json.loads(
+        _logger().serialize(
+            _record(
+                "LLM analysis input",
+                component="analyze",
+                event="llm_input",
+                llm={
+                    "system": "system prompt",
+                    "user": user,
+                    "system_chars": 13,
+                    "user_chars": len(user),
+                    "max_output": 8000,
+                },
+            )
+        )
+    )
+
+    assert payload["event"] == "llm_input"
+    assert payload["llm"]["user"] == user
+    assert payload["llm"]["system"] == "system prompt"
+    assert "truncated" not in payload["llm"]["user"]
