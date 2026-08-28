@@ -249,23 +249,7 @@ class CVAnalyzer:
     def _analysis_sources(evidence_sources: list[dict]) -> list[dict]:
         selected = []
         for source in evidence_sources:
-            if source.get("type") == "document":
-                selected.append(source)
-                continue
-            excerpt = source.get("excerpt")
-            if not excerpt:
-                continue
-            if source.get("type") != "github":
-                selected.append(source)
-                continue
-            try:
-                payload = json.loads(str(excerpt))
-            except json.JSONDecodeError:
-                selected.append(source)
-                continue
-            if isinstance(payload, dict) and any(
-                payload.get(key) for key in ("readme", "package", "topics")
-            ):
+            if source.get("type") == "document" or source.get("excerpt"):
                 selected.append(source)
         return selected
 
@@ -864,14 +848,16 @@ class CVAnalyzer:
             "oleh sumber kandidat, jadikan itu hal yang perlu dipastikan. Hindari kata menguasai, "
             "membuktikan, mengonfirmasi, proficient, proves, dan confirms; gunakan CV menyatakan atau "
             "repositori menunjukkan agar tingkat kepastian tetap tepat. "
-            "Gunakan token dokumen untuk fakta dari CV atau resume. Tambahkan token GitHub atau web "
-            "hanya jika isi sumber itu langsung membuktikan klaim; keberadaan profil, bahasa repo, "
-            "atau tanggal pembaruan saja tidak membuktikan pengalaman kerja, kemahiran, kualitas kode, "
-            "atau penggunaan di produksi. Jika bukti eksternal tidak mendukung klaim, token dokumen "
+            "Cantumkan fakta relevan dari sumber GitHub dan web, bukan hanya dari CV. "
+            "Gunakan token dokumen untuk fakta dari CV atau resume. Gunakan token GitHub atau web "
+            "untuk fakta yang diambil dari sumber itu. Jika klaim hanya ada di dokumen, token dokumen "
             "saja sudah benar. Jika satu klaim menggabungkan fakta dokumen dan bukti eksternal, "
-            "cantumkan kedua token. Nyatakan bukti eksternal hanya sebatas informasi yang benar-benar "
-            "terlihat pada sumber. Jangan mengaitkan teknologi dari daftar keahlian umum dengan proyek "
-            "atau repositori tertentu kecuali deskripsi proyek atau bukti repositori menyatakannya. "
+            "cantumkan kedua token. Keberadaan profil, bahasa repo, atau tanggal pembaruan "
+            "menunjukkan apa yang terlihat pada sumber itu, bukan kemahiran, kualitas kode, "
+            "atau penggunaan di produksi. Nyatakan bukti eksternal hanya sebatas informasi yang "
+            "benar-benar terlihat pada sumber. Jangan mengaitkan teknologi dari daftar keahlian umum "
+            "dengan proyek atau repositori tertentu kecuali deskripsi proyek atau bukti repositori "
+            "menyatakannya. "
             "Jangan mengaitkan teknologi proyek dengan pengalaman kerja kecuali bagian pengalaman "
             "kerja menyatakannya. Gunakan kata menunjukkan atau mengindikasikan, bukan membuktikan "
             "kemahiran atau kualitas, kecuali hasil tersebut dinyatakan langsung. "

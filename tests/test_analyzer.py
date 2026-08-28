@@ -99,7 +99,7 @@ def test_source_budget_preserves_all_metadata_and_shares_excerpt_space():
     assert truncated
 
 
-def test_analysis_sources_keep_documents_and_substantive_external_evidence():
+def test_analysis_sources_keep_documents_and_external_excerpts():
     sources = [
         {
             "id": "document:0",
@@ -122,6 +122,11 @@ def test_analysis_sources_keep_documents_and_substantive_external_evidence():
             "excerpt": json.dumps({"description": "Production API"}),
         },
         {
+            "id": "github:empty",
+            "type": "github",
+            "excerpt": "",
+        },
+        {
             "id": "github:useful",
             "type": "github",
             "excerpt": json.dumps({"readme": "Production API documentation"}),
@@ -131,12 +136,20 @@ def test_analysis_sources_keep_documents_and_substantive_external_evidence():
             "type": "website",
             "excerpt": "Public project documentation",
         },
+        {
+            "id": "web:empty",
+            "type": "website",
+            "excerpt": None,
+        },
     ]
 
     selected = CVAnalyzer._analysis_sources(sources)
 
     assert [source["id"] for source in selected] == [
         "document:0",
+        "github:profile",
+        "github:thin",
+        "github:description-only",
         "github:useful",
         "web:useful",
     ]
@@ -212,7 +225,8 @@ def test_analysis_prompt_requires_html_and_forbids_markdown():
     assert "Pertanyaan Wawancara yang Disarankan" not in prompt
     assert "token sumber seperti [[S1]]" in prompt
     assert "token dokumen" in prompt
-    assert "tidak membuktikan pengalaman kerja" in prompt
+    assert "bukan hanya dari CV" in prompt
+    assert "bukan kemahiran, kualitas kode, atau penggunaan di produksi" in prompt
     assert "tanyakan waktu mulai yang diinginkan secara netral" in prompt
     assert "Jangan mengaitkan teknologi proyek dengan pengalaman kerja" in prompt
     assert "bukan membuktikan kemahiran atau kualitas" in prompt
@@ -527,12 +541,26 @@ def test_bare_github_reference_is_discovered_and_enriched():
                 }
             ]
 
+    class CapturingLLM(FakeLLM):
+        def __init__(self):
+            super().__init__()
+            self.user_prompt = ""
+
+        async def text_completion(
+            self, system: str, user: str, *, max_tokens: int | None = None
+        ) -> str:
+            self.user_prompt = user
+            return await super().text_completion(
+                system, user, max_tokens=max_tokens
+            )
+
     data = Pdf.from_text("GitHub: github.com/octocat").to_bytes()
     upload = UploadFile(filename="cv.pdf", file=io.BytesIO(data))
     github = RecordingGithub()
+    llm = CapturingLLM()
     service = CVAnalyzer(
         settings(),
-        FakeLLM(),
+        llm,
         github,
         NoopEnricher(),
         FakeJobPostingClient(),
@@ -545,6 +573,8 @@ def test_bare_github_reference_is_discovered_and_enriched():
     assert github.urls == ["https://github.com/octocat"]
     assert "github:octocat" in {source.id for source in result.sources}
     assert any(source.type == "github" for source in result.sources)
+    assert "Builder" in llm.user_prompt
+    assert "[[S2]]" in llm.user_prompt
 
 
 def test_github_mentions_without_profile_path_are_not_enriched():
