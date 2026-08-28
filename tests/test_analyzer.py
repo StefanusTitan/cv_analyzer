@@ -215,11 +215,11 @@ def test_analysis_prompt_requires_html_and_forbids_markdown():
     assert "akumulasi tahun pengalaman kerja" in prompt
     assert "jika disebutkan" in prompt
     assert "jangan mengarang ambang tahun" in prompt
-    assert "Maksimal 300 kata" not in prompt
-    assert "Dua sampai tiga poin" not in prompt
-    assert "satu sampai dua kalimat" not in prompt
-    assert "setiap fakta relevan" in prompt
-    assert "jangan membatasi jumlah poin" in prompt
+    assert "Maksimal 500 kata per bahasa" in prompt
+    assert "Dua sampai tiga poin" in prompt
+    assert "satu sampai dua kalimat per poin" in prompt
+    assert "Prioritaskan fakta yang paling memengaruhi" in prompt
+    assert "jangan membatasi jumlah poin" not in prompt
     assert "dampak pengalaman terhadap pekerjaan" in prompt
     assert "<p><b>Rekomendasi untuk HR:</b>" in prompt
     assert "Pertanyaan Wawancara yang Disarankan" not in prompt
