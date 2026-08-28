@@ -7,7 +7,12 @@ from playwright.async_api import Browser, Route
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from app.core.errors import UpstreamError
-from app.utils.urls import is_private_ip
+from app.utils.urls import (
+    classify_source,
+    is_authentication_url,
+    is_private_ip,
+    is_skippable_enrichment_url,
+)
 
 
 class WebScraper:
@@ -16,6 +21,13 @@ class WebScraper:
         self.settings = settings
         self.semaphore = asyncio.Semaphore(settings.scrape_concurrency)
         self.proxy_enforced = bool(settings.scrape_proxy_url)
+
+    @staticmethod
+    async def _meta_content(page, selector: str) -> str:
+        locator = page.locator(selector)
+        if not await locator.count():
+            return ""
+        return str(await locator.first.get_attribute("content") or "").strip()
 
     async def _validate_url(self, value: str) -> None:
         parsed = urlsplit(value)
@@ -70,8 +82,7 @@ class WebScraper:
 
     async def fetch(self, url: str) -> dict:
         await self._validate_url(url)
-        requested = urlsplit(url)
-        if requested.hostname in {"linkedin.com", "www.linkedin.com"}:
+        if is_skippable_enrichment_url(url):
             raise UpstreamError(
                 "The website requires authentication",
                 502,
@@ -85,43 +96,64 @@ class WebScraper:
             await context.route("**/*", self._route)
             try:
                 async with asyncio.timeout(self.settings.scrape_timeout_seconds):
-                    await page.goto(
+                    response = await page.goto(
                         url,
                         wait_until="domcontentloaded",
                         timeout=self.settings.scrape_timeout_seconds * 1000,
                     )
                     await self._validate_url(page.url)
-                    final_url = urlsplit(page.url)
-                    if final_url.hostname in {
-                        "linkedin.com",
-                        "www.linkedin.com",
-                    } and final_url.path.startswith(("/authwall", "/login")):
+                    if (
+                        (response is not None and response.status in {401, 403})
+                        or is_authentication_url(page.url)
+                        or is_skippable_enrichment_url(page.url)
+                    ):
                         raise UpstreamError(
                             "The website requires authentication",
                             502,
                             "website_access_restricted",
                         )
-                    title = await page.title()
-                    description_locator = page.locator('meta[name="description"]')
-                    description = None
-                    if await description_locator.count():
-                        description = await description_locator.first.get_attribute(
-                            "content"
+                    source_type, source_kind = classify_source(page.url)
+                    title = await self._meta_content(page, 'meta[property="og:title"]')
+                    if not title:
+                        title = await page.title()
+                    description = await self._meta_content(
+                        page, 'meta[property="og:description"]'
+                    )
+                    if not description:
+                        description = await self._meta_content(
+                            page, 'meta[name="description"]'
                         )
-                    content_locator = page.locator("main, article, body").first
-                    text = await content_locator.inner_text(timeout=5_000)
+                    selector = (
+                        'main, article, [class*="Project"], body'
+                        if source_type == "behance"
+                        else "main, article, body"
+                    )
+                    content_locator = page.locator(selector).first
+                    try:
+                        text = await content_locator.inner_text(timeout=5_000)
+                    except PlaywrightTimeoutError:
+                        text = ""
                     excerpt = " ".join(text.split())[
                         : self.settings.scrape_max_content_chars
                     ]
+                    combined_excerpt = f"{description}\n{excerpt}".strip()[
+                        : self.settings.scrape_max_content_chars
+                    ]
+                    if not title and not combined_excerpt:
+                        raise UpstreamError(
+                            "The website did not expose readable public evidence",
+                            502,
+                            "website_unavailable",
+                        )
                     source_id = hashlib.sha256(page.url.encode()).hexdigest()[:16]
                     return {
-                        "id": f"web:{source_id}",
+                        "id": f"{source_type}:{source_id}",
                         "url": page.url[:2_048],
-                        "type": "website",
+                        "type": source_type,
+                        "kind": source_kind,
+                        "access_status": "public",
                         "title": title[:500],
-                        "excerpt": f"{description or ''}\n{excerpt}"[
-                            : self.settings.scrape_max_content_chars
-                        ],
+                        "excerpt": combined_excerpt,
                     }
             except (PlaywrightTimeoutError, TimeoutError, ValueError, OSError) as exc:
                 raise UpstreamError(

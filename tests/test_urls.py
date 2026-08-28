@@ -1,5 +1,8 @@
 from app.utils.urls import (
+    classify_source,
+    discover_urls,
     is_github_url,
+    is_gitlab_url,
     is_private_ip,
     is_skippable_enrichment_url,
     normalize_url,
@@ -18,6 +21,26 @@ def test_normalize_url_removes_markdown_fences():
     assert normalize_url("https://github.com/example/repo`") == (
         "https://github.com/example/repo"
     )
+
+
+def test_normalize_url_accepts_bare_public_domains():
+    assert normalize_url("portfolio.example.com/candidate") == (
+        "https://portfolio.example.com/candidate"
+    )
+    assert normalize_url("not-a-domain") is None
+
+
+def test_discover_urls_recovers_bare_cross_role_sources_without_emails():
+    text = (
+        "Design behance.net/candidate and research orcid.org/0000-0001. "
+        "Email candidate@example.com or visit https://gitlab.com/team/project."
+    )
+
+    assert discover_urls(text) == [
+        "behance.net/candidate",
+        "orcid.org/0000-0001.",
+        "https://gitlab.com/team/project.",
+    ]
 
 
 def test_stable_urls_ignores_invalid_values_and_preserves_order():
@@ -39,6 +62,10 @@ def test_stable_urls_skipped_hosts_do_not_consume_cap_slots():
     ]
 
 
+def test_stable_urls_respects_disabled_enrichment():
+    assert stable_urls(["https://github.com/user"], 0) == []
+
+
 def test_private_ip_detection():
     assert is_private_ip("10.0.0.1")
     assert is_private_ip("169.254.169.254")
@@ -49,6 +76,30 @@ def test_private_ip_detection():
 def test_github_hostname_is_exact():
     assert is_github_url("https://github.com/user")
     assert not is_github_url("https://github.com.example.test/user")
+
+
+def test_gitlab_hostname_is_exact():
+    assert is_gitlab_url("https://gitlab.com/user/project")
+    assert not is_gitlab_url("https://gitlab.com.example.test/user/project")
+
+
+def test_cross_role_sources_are_classified_by_platform_and_artifact():
+    assert classify_source("https://gitlab.com/team/project") == (
+        "gitlab",
+        "repository",
+    )
+    assert classify_source("https://www.behance.net/gallery/1/Project") == (
+        "behance",
+        "project",
+    )
+    assert classify_source("https://docs.google.com/presentation/d/abc") == (
+        "google_docs",
+        "presentation",
+    )
+    assert classify_source("https://orcid.org/0000-0001") == (
+        "orcid",
+        "research_profile",
+    )
 
 
 def test_linkedin_urls_are_skipped_for_enrichment():

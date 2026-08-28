@@ -5,6 +5,8 @@ class Source(BaseModel):
     id: str
     url: str
     type: str
+    kind: str | None = None
+    access_status: str | None = None
     title: str | None = None
     excerpt: str | None = None
 

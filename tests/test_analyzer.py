@@ -72,6 +72,7 @@ def analyzer(**overrides):
         FakeLLM(),
         NoopEnricher(),
         NoopEnricher(),
+        NoopEnricher(),
         FakeJobPostingClient(),
     )
 
@@ -224,11 +225,13 @@ def test_analysis_prompt_requires_html_and_forbids_markdown():
     assert "<p><b>Rekomendasi untuk HR:</b>" in prompt
     assert "Pertanyaan Wawancara yang Disarankan" not in prompt
     assert "token sumber seperti [[S1]]" in prompt
-    assert "bukti kandidat dari CV, GitHub, dan web" in prompt
+    assert "dokumen kandidat dan sumber publik yang diberikan kandidat" in prompt
     assert "tidak membuktikan kemahiran, kualitas kode" in prompt
     assert "tanyakan waktu mulai secara netral" in prompt
     assert "jangan mengaitkan teknologi antar-konteks" in prompt
     assert "manifest hanya menunjukkan" in prompt
+    assert "kredensial membuktikan penerbitan, bukan kompetensi" in prompt
+    assert "akses yang dibatasi bukan kekurangan kandidat" in prompt
     assert "satu alasan singkat [[S1]]" in prompt
     assert "JOB DESCRIPTION adalah persyaratan" in prompt
     assert "bukan 'menguasai'" in prompt
@@ -420,6 +423,7 @@ def test_enrichment_dedupes_listed_and_linked_repos_preferring_full_data():
         FakeLLM(),
         SplitGithub(),
         NoopEnricher(),
+        NoopEnricher(),
         FakeJobPostingClient(),
     )
     warnings: list[str] = []
@@ -506,6 +510,7 @@ def test_enrichment_budget_keeps_finished_sources_and_continues():
         settings(enrichment_budget_seconds=0.3, scrape_max_links=10),
         llm,
         NoopEnricher(),
+        NoopEnricher(),
         scraper,
         FakeJobPostingClient(),
     )
@@ -561,6 +566,7 @@ def test_bare_github_reference_is_discovered_and_enriched():
         llm,
         github,
         NoopEnricher(),
+        NoopEnricher(),
         FakeJobPostingClient(),
     )
 
@@ -575,6 +581,80 @@ def test_bare_github_reference_is_discovered_and_enriched():
     assert "[[S2]]" in llm.user_prompt
 
 
+def test_bare_gitlab_reference_is_discovered_and_structurally_enriched():
+    class RecordingGitlab:
+        def __init__(self):
+            self.urls: list[str] = []
+
+        async def fetch(self, url: str):
+            self.urls.append(url)
+            return [
+                {
+                    "id": "gitlab:candidate/project",
+                    "url": url,
+                    "type": "gitlab",
+                    "title": "candidate/project",
+                    "excerpt": json.dumps(
+                        {"description": "Public service", "languages": {"Go": 100}}
+                    ),
+                }
+            ]
+
+    data = Pdf.from_text("Code: gitlab.com/candidate/project").to_bytes()
+    upload = UploadFile(filename="cv.pdf", file=io.BytesIO(data))
+    gitlab = RecordingGitlab()
+    service = CVAnalyzer(
+        settings(),
+        FakeLLM(),
+        NoopEnricher(),
+        gitlab,
+        NoopEnricher(),
+        FakeJobPostingClient(),
+    )
+
+    result = asyncio.run(
+        service.analyze("32a594ac-9e1b-4a9e-a3be-6e6ca87db8ff", [upload])
+    )
+
+    assert gitlab.urls == ["https://gitlab.com/candidate/project"]
+    source = next(source for source in result.sources if source.type == "gitlab")
+    assert source.kind == "repository"
+    assert source.access_status == "public"
+
+
+def test_behance_project_uses_cross_role_artifact_metadata():
+    class RecordingScraper:
+        async def fetch(self, url: str):
+            return {
+                "id": "web:behance-project",
+                "url": url,
+                "type": "website",
+                "title": "Campaign Case Study",
+                "excerpt": "Brand strategy, contribution, and campaign outcomes",
+            }
+
+    service = CVAnalyzer(
+        settings(),
+        FakeLLM(),
+        NoopEnricher(),
+        NoopEnricher(),
+        RecordingScraper(),
+        FakeJobPostingClient(),
+    )
+
+    result = asyncio.run(
+        service.analyze(
+            "32a594ac-9e1b-4a9e-a3be-6e6ca87db8ff",
+            [],
+            links=["behance.net/gallery/123/Campaign-Case-Study"],
+        )
+    )
+
+    source = next(source for source in result.sources if source.type == "behance")
+    assert source.kind == "project"
+    assert source.access_status == "public"
+
+
 def test_github_mentions_without_profile_path_are_not_enriched():
     class RecordingGithub:
         def __init__(self):
@@ -584,22 +664,39 @@ def test_github_mentions_without_profile_path_are_not_enriched():
             self.urls.append(url)
             return []
 
+    class RecordingScraper:
+        def __init__(self):
+            self.urls: list[str] = []
+
+        async def fetch(self, url: str):
+            self.urls.append(url)
+            return {
+                "id": "web:gist",
+                "url": url,
+                "type": "website",
+                "title": "Gist",
+                "excerpt": "Public code sample",
+            }
+
     data = Pdf.from_text(
         "Email someone@github.com or see gist.github.com/octocat/abc"
     ).to_bytes()
     upload = UploadFile(filename="cv.pdf", file=io.BytesIO(data))
     github = RecordingGithub()
+    scraper = RecordingScraper()
     service = CVAnalyzer(
         settings(),
         FakeLLM(),
         github,
         NoopEnricher(),
+        scraper,
         FakeJobPostingClient(),
     )
 
     asyncio.run(service.analyze("32a594ac-9e1b-4a9e-a3be-6e6ca87db8ff", [upload]))
 
     assert github.urls == []
+    assert scraper.urls == ["https://gist.github.com/octocat/abc"]
 
 
 def test_anchor_citations_are_unwrapped_to_plain_urls():
@@ -637,6 +734,7 @@ def test_linkedin_urls_are_not_sent_to_scraper():
         settings(scrape_max_links=5),
         FakeLLM(),
         NoopEnricher(),
+        NoopEnricher(),
         scraper,
         FakeJobPostingClient(),
     )
@@ -647,4 +745,9 @@ def test_linkedin_urls_are_not_sent_to_scraper():
 
     assert scraper.urls == []
     assert any("website_access_restricted" in warning for warning in result.warnings)
+    linkedin_source = next(
+        source for source in result.sources if source.type == "linkedin"
+    )
+    assert linkedin_source.kind == "profile"
+    assert linkedin_source.access_status == "restricted"
     assert service.llm.calls == 1
