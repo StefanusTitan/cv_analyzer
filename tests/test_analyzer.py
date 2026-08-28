@@ -217,6 +217,8 @@ def test_analysis_prompt_requires_html_and_forbids_markdown():
     assert "Kualifikasi: Berlebih / Kurang / Sesuai" in prompt
     assert "Heading en: Fit," in prompt
     assert "Qualification: Overqualified / Underqualified / Just right." in prompt
+    assert "Targetkan sekitar 300 kata untuk id dan sekitar 300 kata untuk en" in prompt
+    assert "bukan 300 kata gabungan" in prompt
     assert "akumulasi tahun pengalaman kerja" in prompt
     assert "hanya jika" in prompt
     assert "jangan mengarang ambang" in prompt
