@@ -213,28 +213,26 @@ def test_analysis_prompt_requires_html_and_forbids_markdown():
     assert "Heading en: Fit," in prompt
     assert "Qualification: Overqualified / Underqualified / Just right." in prompt
     assert "akumulasi tahun pengalaman kerja" in prompt
-    assert "jika disebutkan" in prompt
-    assert "jangan mengarang ambang tahun" in prompt
-    assert "Maksimal 500 kata per bahasa" in prompt
+    assert "hanya jika" in prompt
+    assert "jangan mengarang ambang" in prompt
+    assert "Maksimal 300 kata per bahasa" in prompt
     assert "Dua sampai tiga poin" in prompt
     assert "satu sampai dua kalimat per poin" in prompt
     assert "Prioritaskan fakta yang paling memengaruhi" in prompt
     assert "jangan membatasi jumlah poin" not in prompt
-    assert "dampak pengalaman terhadap pekerjaan" in prompt
+    assert "jelaskan dampaknya terhadap pekerjaan" in prompt
     assert "<p><b>Rekomendasi untuk HR:</b>" in prompt
     assert "Pertanyaan Wawancara yang Disarankan" not in prompt
     assert "token sumber seperti [[S1]]" in prompt
-    assert "token dokumen" in prompt
-    assert "bukan hanya dari CV" in prompt
-    assert "bukan kemahiran, kualitas kode, atau penggunaan di produksi" in prompt
-    assert "tanyakan waktu mulai yang diinginkan secara netral" in prompt
-    assert "Jangan mengaitkan teknologi proyek dengan pengalaman kerja" in prompt
-    assert "bukan membuktikan kemahiran atau kualitas" in prompt
-    assert "Manifest hanya menunjukkan dependensi dan skrip" in prompt
+    assert "bukti kandidat dari CV, GitHub, dan web" in prompt
+    assert "tidak membuktikan kemahiran, kualitas kode" in prompt
+    assert "tanyakan waktu mulai secara netral" in prompt
+    assert "jangan mengaitkan teknologi antar-konteks" in prompt
+    assert "manifest hanya menunjukkan" in prompt
     assert "satu alasan singkat [[S1]]" in prompt
-    assert "Persyaratan di JOB DESCRIPTION bukan bukti pengalaman kandidat" in prompt
-    assert "Hindari kata menguasai" in prompt
-    assert "jangan membuat token baru" in prompt
+    assert "JOB DESCRIPTION adalah persyaratan" in prompt
+    assert "bukan 'menguasai'" in prompt
+    assert "membuat token baru" in prompt
     assert "data tidak tepercaya" in prompt
 
 
