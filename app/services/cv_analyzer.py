@@ -18,8 +18,10 @@ from app.utils.urls import (
     HTTP_URL_RE,
     classify_source,
     discover_urls,
+    is_bitbucket_url,
     is_github_url,
     is_gitlab_url,
+    is_huggingface_url,
     is_skippable_enrichment_url,
     normalize_url,
     stable_urls,
@@ -40,11 +42,24 @@ Document = tuple[int, str, str]
 
 
 class CVAnalyzer:
-    def __init__(self, settings, llm, github, gitlab, oembed, scraper, job_postings):
+    def __init__(
+        self,
+        settings,
+        llm,
+        github,
+        gitlab,
+        bitbucket,
+        huggingface,
+        oembed,
+        scraper,
+        job_postings,
+    ):
         self.settings = settings
         self.llm = llm
         self.github = github
         self.gitlab = gitlab
+        self.bitbucket = bitbucket
+        self.huggingface = huggingface
         self.oembed = oembed
         self.scraper = scraper
         self.job_postings = job_postings
@@ -568,6 +583,12 @@ class CVAnalyzer:
             if is_gitlab_url(url):
                 sources = await self.gitlab.fetch(url)
                 return sources, "succeeded" if sources else "empty"
+            if is_bitbucket_url(url):
+                sources = await self.bitbucket.fetch(url)
+                return sources, "succeeded" if sources else "empty"
+            if is_huggingface_url(url):
+                sources = await self.huggingface.fetch(url)
+                return sources, "succeeded" if sources else "empty"
             source_type, source_kind = classify_source(url)
             if source_type in {"youtube", "vimeo"} and source_kind == "video":
                 sources = await self.oembed.fetch(url)
@@ -817,16 +838,16 @@ class CVAnalyzer:
     def _format_excerpt(excerpt: str, source_type: str) -> str:
         if not excerpt:
             return ""
-        if source_type in {"github", "gitlab"}:
+        if source_type in {"github", "gitlab", "bitbucket", "huggingface"}:
             try:
                 data = json.loads(excerpt)
-                return CVAnalyzer._format_repository_data(data)
+                return CVAnalyzer._format_structured_source_data(data)
             except (json.JSONDecodeError, TypeError):
                 return excerpt
         return excerpt
 
     @staticmethod
-    def _format_repository_data(data: dict) -> str:
+    def _format_structured_source_data(data: dict) -> str:
         lines: list[str] = []
         skip_keys = {"html_url"}
         for key, value in data.items():
@@ -841,9 +862,9 @@ class CVAnalyzer:
                         f"{k} ({v:,} bytes)" for k, v in value.items()
                     )
                     lines.append(f"Languages: {langs}")
-            elif key == "topics" and isinstance(value, list):
+            elif key in {"topics", "tags"} and isinstance(value, list):
                 if value:
-                    lines.append(f"Topics: {', '.join(str(v) for v in value)}")
+                    lines.append(f"{key.title()}: {', '.join(str(v) for v in value)}")
             elif key == "license":
                 if value:
                     lines.append(f"License: {value}")
@@ -906,7 +927,9 @@ class CVAnalyzer:
             "dependensi dan skrip yang dideklarasikan. Profil, bahasa repo, atau tanggal pembaruan tidak "
             "membuktikan kemahiran, kualitas kode, kontribusi, atau penggunaan di produksi. Portofolio "
             "tidak membuktikan kepengarangan atau kualitas; kredensial membuktikan penerbitan, bukan "
-            "kompetensi; metrik popularitas bukan ukuran kualitas. Gunakan "
+            "kompetensi; kartu model, dataset, dan aplikasi hanya menunjukkan metadata serta dokumentasi "
+            "publik, bukan kualitas, kepengarangan, atau penggunaan di produksi; metrik popularitas bukan "
+            "ukuran kualitas. Gunakan "
             "'CV menyatakan', 'repositori menunjukkan', atau 'mengindikasikan', bukan 'menguasai', "
             "'membuktikan', 'mengonfirmasi', 'proficient', 'proves', atau 'confirms'. Tidak adanya bukti "
             "sumber publik atau akses yang dibatasi bukan kekurangan kandidat dan bukan berarti klaim salah. "

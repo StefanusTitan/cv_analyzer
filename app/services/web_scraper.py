@@ -36,6 +36,7 @@ class WebScraper:
             "google_docs": '[role="main"], .docs-editor-container, main, body',
             "google_drive": '[role="main"], main, body',
             "notion": 'main, [role="main"], article, body',
+            "orcid": 'main, [role="main"], body',
         }
         return selectors.get(source_type, "main, article, body")
 
@@ -173,6 +174,11 @@ class WebScraper:
                         "notion",
                         "medium",
                         "substack",
+                        "orcid",
+                        "credly",
+                        "microsoft_learn",
+                        "tableau",
+                        "power_bi",
                     }
                     excerpt = self._normalize_text(text, preserve_lines)[
                         : self.settings.scrape_max_content_chars

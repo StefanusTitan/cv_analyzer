@@ -75,6 +75,8 @@ def analyzer(**overrides):
         NoopEnricher(),
         NoopEnricher(),
         NoopEnricher(),
+        NoopEnricher(),
+        NoopEnricher(),
         FakeJobPostingClient(),
     )
 
@@ -233,6 +235,7 @@ def test_analysis_prompt_requires_html_and_forbids_markdown():
     assert "jangan mengaitkan teknologi antar-konteks" in prompt
     assert "manifest hanya menunjukkan" in prompt
     assert "kredensial membuktikan penerbitan, bukan kompetensi" in prompt
+    assert "kartu model, dataset, dan aplikasi hanya menunjukkan metadata" in prompt
     assert "akses yang dibatasi bukan kekurangan kandidat" in prompt
     assert "satu alasan singkat [[S1]]" in prompt
     assert "JOB DESCRIPTION adalah persyaratan" in prompt
@@ -378,6 +381,7 @@ def test_github_readme_is_included_in_llm_evidence():
                 "dependencies": ["next", "react"],
                 "scripts": ["build", "test"],
             },
+            "tags": ["text-classification", "language:en"],
         },
         ensure_ascii=False,
     )
@@ -388,6 +392,7 @@ def test_github_readme_is_included_in_llm_evidence():
     assert "pip install example-cli" in formatted
     assert "PACKAGE.JSON:" in formatted
     assert "declared dependencies: next, react" in formatted
+    assert "Tags: text-classification, language:en" in formatted
 
 
 def test_enrichment_dedupes_listed_and_linked_repos_preferring_full_data():
@@ -424,6 +429,8 @@ def test_enrichment_dedupes_listed_and_linked_repos_preferring_full_data():
         settings(),
         FakeLLM(),
         SplitGithub(),
+        NoopEnricher(),
+        NoopEnricher(),
         NoopEnricher(),
         NoopEnricher(),
         NoopEnricher(),
@@ -516,6 +523,8 @@ def test_enrichment_budget_keeps_finished_sources_and_continues():
         NoopEnricher(),
         NoopEnricher(),
         NoopEnricher(),
+        NoopEnricher(),
+        NoopEnricher(),
         scraper,
         FakeJobPostingClient(),
     )
@@ -573,6 +582,8 @@ def test_bare_github_reference_is_discovered_and_enriched():
         NoopEnricher(),
         NoopEnricher(),
         NoopEnricher(),
+        NoopEnricher(),
+        NoopEnricher(),
         FakeJobPostingClient(),
     )
 
@@ -616,6 +627,8 @@ def test_bare_gitlab_reference_is_discovered_and_structurally_enriched():
         gitlab,
         NoopEnricher(),
         NoopEnricher(),
+        NoopEnricher(),
+        NoopEnricher(),
         FakeJobPostingClient(),
     )
 
@@ -646,6 +659,8 @@ def test_behance_project_uses_cross_role_artifact_metadata():
         NoopEnricher(),
         NoopEnricher(),
         NoopEnricher(),
+        NoopEnricher(),
+        NoopEnricher(),
         RecordingScraper(),
         FakeJobPostingClient(),
     )
@@ -661,6 +676,61 @@ def test_behance_project_uses_cross_role_artifact_metadata():
     source = next(source for source in result.sources if source.type == "behance")
     assert source.kind == "project"
     assert source.access_status == "public"
+
+
+def test_bitbucket_and_hugging_face_use_structured_enrichers():
+    class RecordingEnricher:
+        def __init__(self, source_type: str):
+            self.source_type = source_type
+            self.urls = []
+
+        async def fetch(self, url: str):
+            self.urls.append(url)
+            return [
+                {
+                    "id": f"{self.source_type}:candidate/work",
+                    "url": url,
+                    "type": self.source_type,
+                    "title": "candidate/work",
+                    "excerpt": "Public metadata",
+                }
+            ]
+
+    class RejectingScraper:
+        async def fetch(self, url: str):
+            raise AssertionError(f"Structured URL reached scraper: {url}")
+
+    bitbucket = RecordingEnricher("bitbucket")
+    huggingface = RecordingEnricher("huggingface")
+    service = CVAnalyzer(
+        settings(),
+        FakeLLM(),
+        NoopEnricher(),
+        NoopEnricher(),
+        bitbucket,
+        huggingface,
+        NoopEnricher(),
+        RejectingScraper(),
+        FakeJobPostingClient(),
+    )
+
+    async def run():
+        warnings = []
+        bitbucket_result = await service._enrich(
+            "https://bitbucket.org/candidate/work", warnings
+        )
+        huggingface_result = await service._enrich(
+            "https://huggingface.co/candidate/work", warnings
+        )
+        return bitbucket_result, huggingface_result, warnings
+
+    bitbucket_result, huggingface_result, warnings = asyncio.run(run())
+
+    assert bitbucket.urls == ["https://bitbucket.org/candidate/work"]
+    assert huggingface.urls == ["https://huggingface.co/candidate/work"]
+    assert bitbucket_result[1] == "succeeded"
+    assert huggingface_result[1] == "succeeded"
+    assert warnings == []
 
 
 def test_media_routing_and_telemetry_exclude_candidate_urls(monkeypatch):
@@ -699,6 +769,8 @@ def test_media_routing_and_telemetry_exclude_candidate_urls(monkeypatch):
     service = CVAnalyzer(
         settings(),
         FakeLLM(),
+        NoopEnricher(),
+        NoopEnricher(),
         NoopEnricher(),
         NoopEnricher(),
         oembed,
@@ -763,6 +835,8 @@ def test_github_mentions_without_profile_path_are_not_enriched():
         github,
         NoopEnricher(),
         NoopEnricher(),
+        NoopEnricher(),
+        NoopEnricher(),
         scraper,
         FakeJobPostingClient(),
     )
@@ -807,6 +881,8 @@ def test_linkedin_urls_are_not_sent_to_scraper():
     service = CVAnalyzer(
         settings(scrape_max_links=5),
         FakeLLM(),
+        NoopEnricher(),
+        NoopEnricher(),
         NoopEnricher(),
         NoopEnricher(),
         NoopEnricher(),

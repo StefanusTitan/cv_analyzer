@@ -2,8 +2,10 @@ from app.utils.urls import (
     classify_source,
     discover_urls,
     is_authentication_url,
+    is_bitbucket_url,
     is_github_url,
     is_gitlab_url,
+    is_huggingface_url,
     is_private_ip,
     is_skippable_enrichment_url,
     normalize_url,
@@ -84,10 +86,25 @@ def test_gitlab_hostname_is_exact():
     assert not is_gitlab_url("https://gitlab.com.example.test/user/project")
 
 
+def test_bitbucket_and_hugging_face_hostnames_are_exact():
+    assert is_bitbucket_url("https://bitbucket.org/team/project")
+    assert not is_bitbucket_url("https://bitbucket.org.example.test/team/project")
+    assert is_huggingface_url("https://huggingface.co/candidate/model")
+    assert not is_huggingface_url("https://huggingface.co.example.test/candidate/model")
+
+
 def test_cross_role_sources_are_classified_by_platform_and_artifact():
     assert classify_source("https://gitlab.com/team/project") == (
         "gitlab",
         "repository",
+    )
+    assert classify_source("https://bitbucket.org/team/project") == (
+        "bitbucket",
+        "repository",
+    )
+    assert classify_source("https://huggingface.co/datasets/candidate/example") == (
+        "huggingface",
+        "dataset",
     )
     assert classify_source("https://www.behance.net/gallery/1/Project") == (
         "behance",

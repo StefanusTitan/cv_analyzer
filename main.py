@@ -7,10 +7,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException
 
 from app.api.routes.cv import router as cv_router
+from app.clients.bitbucket import BitbucketClient
 from app.clients.dashscope import LLMClient
 from app.clients.github import GithubClient
 from app.clients.gitlab import GitlabClient
 from app.clients.hrms import JobPostingClient
+from app.clients.huggingface import HuggingFaceClient
 from app.clients.oembed import OEmbedClient
 from app.clients.scraper import ScraperClient
 from app.core.config import get_settings
@@ -30,14 +32,24 @@ async def lifespan(app: FastAPI):
     http_client = httpx.AsyncClient(timeout=15)
     llm = LLMClient(settings)
     try:
+        bitbucket = BitbucketClient(http_client)
         github = GithubClient(http_client, settings.github_access_token)
         gitlab = GitlabClient(http_client)
+        huggingface = HuggingFaceClient(http_client)
         oembed = OEmbedClient(http_client)
         job_postings = JobPostingClient(http_client, settings)
         scraper = ScraperClient(http_client, settings)
         app.state.scraper_client = scraper
         app.state.cv_analyzer = CVAnalyzer(
-            settings, llm, github, gitlab, oembed, scraper, job_postings
+            settings,
+            llm,
+            github,
+            gitlab,
+            bitbucket,
+            huggingface,
+            oembed,
+            scraper,
+            job_postings,
         )
         yield
     finally:

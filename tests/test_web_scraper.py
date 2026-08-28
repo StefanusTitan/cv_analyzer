@@ -24,4 +24,5 @@ def test_restricted_shared_page_content_is_detected_without_generic_login_text()
 def test_shared_platforms_use_targeted_content_regions():
     assert "docs-editor-container" in WebScraper._content_selector("google_docs")
     assert '[role="main"]' in WebScraper._content_selector("notion")
+    assert '[role="main"]' in WebScraper._content_selector("orcid")
     assert WebScraper._content_selector("website") == "main, article, body"

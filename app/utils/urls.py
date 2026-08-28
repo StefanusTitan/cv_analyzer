@@ -67,6 +67,22 @@ def is_gitlab_url(value: str) -> bool:
         return False
 
 
+def is_bitbucket_url(value: str) -> bool:
+    try:
+        host = (urlsplit(value).hostname or "").lower().rstrip(".")
+        return host in {"bitbucket.org", "www.bitbucket.org"}
+    except ValueError:
+        return False
+
+
+def is_huggingface_url(value: str) -> bool:
+    try:
+        host = (urlsplit(value).hostname or "").lower().rstrip(".")
+        return host in {"huggingface.co", "www.huggingface.co"}
+    except ValueError:
+        return False
+
+
 def classify_source(value: str) -> tuple[str, str]:
     try:
         parsed = urlsplit(value)
@@ -82,6 +98,8 @@ def classify_source(value: str) -> tuple[str, str]:
     if host in {"gitlab.com", "www.gitlab.com"}:
         project_parts = parts[: parts.index("-")] if "-" in parts else parts
         return "gitlab", "repository" if len(project_parts) >= 2 else "profile"
+    if host in {"bitbucket.org", "www.bitbucket.org"}:
+        return "bitbucket", "repository" if len(parts) >= 2 else "profile"
     if _matches_host(host, "behance.net"):
         return "behance", "project" if "gallery" in parts else "profile"
     if _matches_host(host, "figma.com"):
@@ -112,7 +130,7 @@ def classify_source(value: str) -> tuple[str, str]:
         return "vimeo", "video" if parts and parts[-1].isdigit() else "profile"
     if _matches_host(host, "kaggle.com"):
         return "kaggle", "notebook" if "code" in parts else "profile"
-    if host == "huggingface.co" or host.endswith(".hf.space"):
+    if host in {"huggingface.co", "www.huggingface.co"} or host.endswith(".hf.space"):
         if parts[:1] == ["datasets"]:
             return "huggingface", "dataset"
         if parts[:1] == ["spaces"] or host.endswith(".hf.space"):
