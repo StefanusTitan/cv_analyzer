@@ -96,3 +96,26 @@ def test_serialize_includes_provider_fields():
     assert payload["provider_status"] == 429
     assert payload["provider_code"] == "Throttling.RateQuota"
     assert payload["cause_type"] == "ServiceUnavailableError"
+
+
+def test_serialize_preserves_aggregate_enrichment_without_candidate_details():
+    payload = json.loads(
+        _logger().serialize(
+            _record(
+                "CV analysis stage timings",
+                component="analyze",
+                event="stage_timings",
+                enrichment={
+                    "submitted_platforms": {"behance": 2, "youtube": 1},
+                    "enriched_platforms": {"behance": 1, "youtube": 1},
+                    "outcomes": {"failed": 1, "succeeded": 2},
+                },
+            )
+        )
+    )
+
+    assert payload["enrichment"]["submitted_platforms"] == {
+        "behance": 2,
+        "youtube": 1,
+    }
+    assert "url" not in json.dumps(payload["enrichment"]).lower()

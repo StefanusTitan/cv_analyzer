@@ -1,6 +1,7 @@
 from app.utils.urls import (
     classify_source,
     discover_urls,
+    is_authentication_url,
     is_github_url,
     is_gitlab_url,
     is_private_ip,
@@ -100,6 +101,14 @@ def test_cross_role_sources_are_classified_by_platform_and_artifact():
         "orcid",
         "research_profile",
     )
+    assert classify_source("https://www.youtube.com/watch?v=abc") == (
+        "youtube",
+        "video",
+    )
+    assert classify_source("https://www.youtube.com/@candidate") == (
+        "youtube",
+        "profile",
+    )
 
 
 def test_linkedin_urls_are_skipped_for_enrichment():
@@ -108,3 +117,11 @@ def test_linkedin_urls_are_skipped_for_enrichment():
     assert is_skippable_enrichment_url("https://m.linkedin.com/in/someone")
     assert not is_skippable_enrichment_url("https://example.com/cv")
     assert not is_skippable_enrichment_url("https://github.com/user")
+
+
+def test_shared_platform_authentication_redirects_are_recognized():
+    assert is_authentication_url("https://accounts.google.com/signin")
+    assert is_authentication_url("https://www.notion.so/login")
+    assert is_authentication_url("https://www.figma.com/signup")
+    assert is_authentication_url("https://auth.services.adobe.com/signin")
+    assert not is_authentication_url("https://candidate.notion.site/portfolio")

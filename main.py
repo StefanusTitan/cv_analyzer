@@ -11,6 +11,7 @@ from app.clients.dashscope import LLMClient
 from app.clients.github import GithubClient
 from app.clients.gitlab import GitlabClient
 from app.clients.hrms import JobPostingClient
+from app.clients.oembed import OEmbedClient
 from app.clients.scraper import ScraperClient
 from app.core.config import get_settings
 from app.exceptions.log import LogError
@@ -31,11 +32,12 @@ async def lifespan(app: FastAPI):
     try:
         github = GithubClient(http_client, settings.github_access_token)
         gitlab = GitlabClient(http_client)
+        oembed = OEmbedClient(http_client)
         job_postings = JobPostingClient(http_client, settings)
         scraper = ScraperClient(http_client, settings)
         app.state.scraper_client = scraper
         app.state.cv_analyzer = CVAnalyzer(
-            settings, llm, github, gitlab, scraper, job_postings
+            settings, llm, github, gitlab, oembed, scraper, job_postings
         )
         yield
     finally:

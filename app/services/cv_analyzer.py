@@ -4,6 +4,7 @@ import json
 import re
 import tempfile
 import time
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -39,11 +40,12 @@ Document = tuple[int, str, str]
 
 
 class CVAnalyzer:
-    def __init__(self, settings, llm, github, gitlab, scraper, job_postings):
+    def __init__(self, settings, llm, github, gitlab, oembed, scraper, job_postings):
         self.settings = settings
         self.llm = llm
         self.github = github
         self.gitlab = gitlab
+        self.oembed = oembed
         self.scraper = scraper
         self.job_postings = job_postings
         self.extraction_semaphore = asyncio.Semaphore(settings.extraction_concurrency)
@@ -344,27 +346,25 @@ class CVAnalyzer:
                     warnings.append(
                         f"Could not enrich {url}: website_access_restricted"
                     )
-                    source_type, source_kind = classify_source(url)
-                    source_hash = hashlib.sha256(url.encode()).hexdigest()[:16]
-                    sources.append(
-                        {
-                            "id": f"{source_type}:{source_hash}",
-                            "url": url,
-                            "type": source_type,
-                            "kind": source_kind,
-                            "access_status": "restricted",
-                            "title": None,
-                            "excerpt": None,
-                        }
-                    )
+                    sources.append(self._restricted_source(url))
                 urls = stable_urls(
                     discovered,
                     self.settings.scrape_max_links,
                     skip=is_skippable_enrichment_url,
                 )
                 urls_ready_at = time.perf_counter()
-                enriched = await self._enrich_all(urls, warnings)
+                enriched, enrichment_outcomes = await self._enrich_all(urls, warnings)
+                if restricted_urls:
+                    enrichment_outcomes["restricted"] = len(restricted_urls)
                 sources.extend(enriched)
+                submitted_platforms = Counter(
+                    classify_source(url)[0] for url in [*restricted_urls, *urls]
+                )
+                enriched_platforms = Counter(
+                    str(source.get("type") or "unknown")
+                    for source in enriched
+                    if source.get("access_status") != "restricted"
+                )
                 enriched_at = time.perf_counter()
 
                 evidence_sources, evidence_truncated = self._budget_sources(
@@ -411,6 +411,11 @@ class CVAnalyzer:
                     request_id=request_id,
                     component="analyze",
                     event="stage_timings",
+                    enrichment={
+                        "submitted_platforms": dict(sorted(submitted_platforms.items())),
+                        "enriched_platforms": dict(sorted(enriched_platforms.items())),
+                        "outcomes": dict(sorted(enrichment_outcomes.items())),
+                    },
                     performance={
                         "job_and_document_prep_ms": round(
                             (prepared_at - parallel_started) * 1000, 2
@@ -466,18 +471,36 @@ class CVAnalyzer:
             status_code=status_code,
         ).error(f"CV analysis failed at {stage} ({error_code})")
 
-    async def _enrich_all(self, urls: list[str], warnings: list[str]) -> list[dict]:
+    @staticmethod
+    def _restricted_source(url: str) -> dict:
+        source_type, source_kind = classify_source(url)
+        source_hash = hashlib.sha256(url.encode()).hexdigest()[:16]
+        return {
+            "id": f"{source_type}:{source_hash}",
+            "url": url,
+            "type": source_type,
+            "kind": source_kind,
+            "access_status": "restricted",
+            "title": None,
+            "excerpt": None,
+        }
+
+    async def _enrich_all(
+        self, urls: list[str], warnings: list[str]
+    ) -> tuple[list[dict], dict[str, int]]:
+        outcomes: Counter[str] = Counter()
         if not urls:
-            return []
+            return [], {}
 
         pending_urls: list[str] = []
         for url in urls:
             if is_skippable_enrichment_url(url):
                 warnings.append(f"Could not enrich {url}: website_access_restricted")
+                outcomes["restricted"] += 1
                 continue
             pending_urls.append(url)
         if not pending_urls:
-            return []
+            return [], dict(outcomes)
 
         tasks = [
             asyncio.create_task(self._enrich(url, warnings), name=f"enrich:{index}")
@@ -501,9 +524,14 @@ class CVAnalyzer:
 
         sources: list[dict] = []
         for task in tasks:
-            if task in timed_out or task.cancelled() or task.exception() is not None:
+            if task in timed_out or task.cancelled():
+                outcomes["timed_out"] += 1
                 continue
-            result = task.result()
+            if task.exception() is not None:
+                outcomes["failed"] += 1
+                continue
+            result, outcome = task.result()
+            outcomes[outcome] += 1
             if result:
                 sources.extend(result)
 
@@ -528,24 +556,35 @@ class CVAnalyzer:
                 str(existing.get("excerpt") or "")
             ):
                 deduped[source_id] = source
-        return list(deduped.values())
+        return list(deduped.values()), dict(outcomes)
 
-    async def _enrich(self, url: str, warnings: list[str]) -> list[dict]:
+    async def _enrich(
+        self, url: str, warnings: list[str]
+    ) -> tuple[list[dict], str]:
         try:
             if is_github_url(url):
-                return await self.github.fetch(url)
+                sources = await self.github.fetch(url)
+                return sources, "succeeded" if sources else "empty"
             if is_gitlab_url(url):
-                return await self.gitlab.fetch(url)
+                sources = await self.gitlab.fetch(url)
+                return sources, "succeeded" if sources else "empty"
+            source_type, source_kind = classify_source(url)
+            if source_type in {"youtube", "vimeo"} and source_kind == "video":
+                sources = await self.oembed.fetch(url)
+                return sources, "succeeded" if sources else "empty"
             async with self.enrichment_semaphore:
                 source = await self.scraper.fetch(url)
-            return [source] if source else []
+            return ([source], "succeeded") if source else ([], "empty")
         except AnalysisError as exc:
             warnings.append(f"Could not enrich {url}: {exc.code}")
+            if exc.code == "website_access_restricted":
+                return [self._restricted_source(url)], "restricted"
+            return [], "failed"
         except (OSError, ValueError) as exc:
             warnings.append(f"Could not enrich {url}: {type(exc).__name__}")
+            return [], "failed"
         except asyncio.CancelledError:
             raise
-        return []
 
     @staticmethod
     def _invalid_llm_response() -> UpstreamError:

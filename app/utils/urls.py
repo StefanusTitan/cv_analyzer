@@ -100,10 +100,16 @@ def classify_source(value: str) -> tuple[str, str]:
         return "google_docs", kinds.get(parts[0] if parts else "", "document")
     if host == "drive.google.com":
         return "google_drive", "shared_file"
-    if _matches_host(host, "youtube.com") or host == "youtu.be":
-        return "youtube", "video"
+    if host == "youtu.be":
+        return "youtube", "video" if parts else "profile"
+    if _matches_host(host, "youtube.com"):
+        if parts[:1] in (["watch"], ["shorts"], ["embed"], ["live"]):
+            return "youtube", "video"
+        if parts[:1] == ["playlist"]:
+            return "youtube", "collection"
+        return "youtube", "profile"
     if _matches_host(host, "vimeo.com"):
-        return "vimeo", "video"
+        return "vimeo", "video" if parts and parts[-1].isdigit() else "profile"
     if _matches_host(host, "kaggle.com"):
         return "kaggle", "notebook" if "code" in parts else "profile"
     if host == "huggingface.co" or host.endswith(".hf.space"):
@@ -146,8 +152,18 @@ def is_authentication_url(value: str) -> bool:
         return True
     host = (parsed.hostname or "").lower().rstrip(".")
     path = parsed.path.lower()
-    if host in {"accounts.google.com", "login.live.com", "login.microsoftonline.com"}:
+    if host in {
+        "accounts.google.com",
+        "account.adobe.com",
+        "auth.services.adobe.com",
+        "login.live.com",
+        "login.microsoftonline.com",
+    }:
         return True
+    if _matches_host(host, "notion.so") or _matches_host(host, "figma.com"):
+        return path.startswith(("/login", "/signup"))
+    if _matches_host(host, "canva.com"):
+        return path.startswith(("/login", "/signup"))
     return _matches_host(host, "linkedin.com") and path.startswith(
         ("/authwall", "/login")
     )

@@ -29,6 +29,38 @@ class WebScraper:
             return ""
         return str(await locator.first.get_attribute("content") or "").strip()
 
+    @staticmethod
+    def _content_selector(source_type: str) -> str:
+        selectors = {
+            "behance": 'main, article, [class*="Project"], body',
+            "google_docs": '[role="main"], .docs-editor-container, main, body',
+            "google_drive": '[role="main"], main, body',
+            "notion": 'main, [role="main"], article, body',
+        }
+        return selectors.get(source_type, "main, article, body")
+
+    @staticmethod
+    def _normalize_text(value: str, preserve_lines: bool) -> str:
+        if not preserve_lines:
+            return " ".join(value.split())
+        lines = [" ".join(line.split()) for line in value.splitlines()]
+        return "\n".join(line for line in lines if line)
+
+    @staticmethod
+    def _has_restricted_content(title: str, text: str) -> bool:
+        content = f"{title}\n{text}".casefold()
+        phrases = {
+            "you need access",
+            "request access to this file",
+            "you don't have permission",
+            "you do not have permission",
+            "this page is private",
+            "this content is private",
+            "this design is private",
+            "access to this page has been denied",
+        }
+        return any(phrase in content for phrase in phrases)
+
     async def _validate_url(self, value: str) -> None:
         parsed = urlsplit(value)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
@@ -123,17 +155,26 @@ class WebScraper:
                         description = await self._meta_content(
                             page, 'meta[name="description"]'
                         )
-                    selector = (
-                        'main, article, [class*="Project"], body'
-                        if source_type == "behance"
-                        else "main, article, body"
-                    )
+                    selector = self._content_selector(source_type)
                     content_locator = page.locator(selector).first
                     try:
                         text = await content_locator.inner_text(timeout=5_000)
                     except PlaywrightTimeoutError:
                         text = ""
-                    excerpt = " ".join(text.split())[
+                    if self._has_restricted_content(title, text):
+                        raise UpstreamError(
+                            "The website requires authentication",
+                            502,
+                            "website_access_restricted",
+                        )
+                    preserve_lines = source_type in {
+                        "google_docs",
+                        "google_drive",
+                        "notion",
+                        "medium",
+                        "substack",
+                    }
+                    excerpt = self._normalize_text(text, preserve_lines)[
                         : self.settings.scrape_max_content_chars
                     ]
                     combined_excerpt = f"{description}\n{excerpt}".strip()[

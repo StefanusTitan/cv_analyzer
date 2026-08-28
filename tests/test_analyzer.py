@@ -7,6 +7,7 @@ from fastapi import UploadFile
 from pdf_oxide import Pdf
 
 from app.core.errors import UpstreamError
+from app.services import cv_analyzer as cv_analyzer_module
 from app.services.cv_analyzer import CVAnalyzer
 
 
@@ -70,6 +71,7 @@ def analyzer(**overrides):
     return CVAnalyzer(
         settings(**overrides),
         FakeLLM(),
+        NoopEnricher(),
         NoopEnricher(),
         NoopEnricher(),
         NoopEnricher(),
@@ -424,11 +426,12 @@ def test_enrichment_dedupes_listed_and_linked_repos_preferring_full_data():
         SplitGithub(),
         NoopEnricher(),
         NoopEnricher(),
+        NoopEnricher(),
         FakeJobPostingClient(),
     )
     warnings: list[str] = []
 
-    sources = asyncio.run(
+    sources, outcomes = asyncio.run(
         service._enrich_all(
             ["https://github.com/octocat", "https://github.com/octocat/hello"],
             warnings,
@@ -439,6 +442,7 @@ def test_enrichment_dedupes_listed_and_linked_repos_preferring_full_data():
     assert len(hello) == 1
     assert len(hello[0]["excerpt"]) == 400
     assert any(source["id"] == "github:octocat" for source in sources)
+    assert outcomes == {"succeeded": 2}
 
 
 def test_analyzer_returns_narrative_and_closes_upload():
@@ -511,6 +515,7 @@ def test_enrichment_budget_keeps_finished_sources_and_continues():
         llm,
         NoopEnricher(),
         NoopEnricher(),
+        NoopEnricher(),
         scraper,
         FakeJobPostingClient(),
     )
@@ -567,6 +572,7 @@ def test_bare_github_reference_is_discovered_and_enriched():
         github,
         NoopEnricher(),
         NoopEnricher(),
+        NoopEnricher(),
         FakeJobPostingClient(),
     )
 
@@ -609,6 +615,7 @@ def test_bare_gitlab_reference_is_discovered_and_structurally_enriched():
         NoopEnricher(),
         gitlab,
         NoopEnricher(),
+        NoopEnricher(),
         FakeJobPostingClient(),
     )
 
@@ -638,6 +645,7 @@ def test_behance_project_uses_cross_role_artifact_metadata():
         FakeLLM(),
         NoopEnricher(),
         NoopEnricher(),
+        NoopEnricher(),
         RecordingScraper(),
         FakeJobPostingClient(),
     )
@@ -653,6 +661,71 @@ def test_behance_project_uses_cross_role_artifact_metadata():
     source = next(source for source in result.sources if source.type == "behance")
     assert source.kind == "project"
     assert source.access_status == "public"
+
+
+def test_media_routing_and_telemetry_exclude_candidate_urls(monkeypatch):
+    class RecordingOEmbed:
+        def __init__(self):
+            self.urls: list[str] = []
+
+        async def fetch(self, url: str):
+            self.urls.append(url)
+            return [
+                {
+                    "id": "youtube:video",
+                    "url": url,
+                    "type": "youtube",
+                    "kind": "video",
+                    "access_status": "public",
+                    "title": "Candidate presentation",
+                    "excerpt": json.dumps({"author": "Candidate"}),
+                }
+            ]
+
+    class RecordingLogger:
+        def __init__(self):
+            self.extra = None
+
+        def bind(self, **extra):
+            self.extra = extra
+            return self
+
+        def info(self, message: str):
+            return None
+
+    oembed = RecordingOEmbed()
+    recording_logger = RecordingLogger()
+    monkeypatch.setattr(cv_analyzer_module, "logger", recording_logger)
+    service = CVAnalyzer(
+        settings(),
+        FakeLLM(),
+        NoopEnricher(),
+        NoopEnricher(),
+        oembed,
+        NoopEnricher(),
+        FakeJobPostingClient(),
+    )
+
+    result = asyncio.run(
+        service.analyze(
+            "32a594ac-9e1b-4a9e-a3be-6e6ca87db8ff",
+            [],
+            links=[
+                "https://youtu.be/private-candidate-path",
+                "https://linkedin.com/in/private-candidate-path",
+            ],
+        )
+    )
+
+    assert oembed.urls == ["https://youtu.be/private-candidate-path"]
+    assert any(source.type == "youtube" for source in result.sources)
+    telemetry = recording_logger.extra["enrichment"]
+    assert telemetry == {
+        "submitted_platforms": {"linkedin": 1, "youtube": 1},
+        "enriched_platforms": {"youtube": 1},
+        "outcomes": {"restricted": 1, "succeeded": 1},
+    }
+    assert "private-candidate-path" not in json.dumps(telemetry)
 
 
 def test_github_mentions_without_profile_path_are_not_enriched():
@@ -688,6 +761,7 @@ def test_github_mentions_without_profile_path_are_not_enriched():
         settings(),
         FakeLLM(),
         github,
+        NoopEnricher(),
         NoopEnricher(),
         scraper,
         FakeJobPostingClient(),
@@ -733,6 +807,7 @@ def test_linkedin_urls_are_not_sent_to_scraper():
     service = CVAnalyzer(
         settings(scrape_max_links=5),
         FakeLLM(),
+        NoopEnricher(),
         NoopEnricher(),
         NoopEnricher(),
         scraper,

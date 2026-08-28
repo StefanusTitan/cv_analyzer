@@ -149,6 +149,7 @@ def make_analyzer(
     job_postings: Any | None = None,
     github: Any | None = None,
     gitlab: Any | None = None,
+    oembed: Any | None = None,
     scraper: Any | None = None,
 ) -> CVAnalyzer:
     return CVAnalyzer(
@@ -156,6 +157,7 @@ def make_analyzer(
         llm or FakeLLM(),
         github or NoopEnricher(),
         gitlab or NoopEnricher(),
+        oembed or NoopEnricher(),
         scraper or NoopEnricher(),
         # By default the fake echoes the requested job_posting_id; tests that need
         # a fixed posting pass one explicitly.
