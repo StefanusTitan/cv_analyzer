@@ -28,9 +28,12 @@ Content-Type: multipart/form-data
 |-----------------|----------|--------|--------------------------------------------------|
 | `job_posting_id`| yes      | string | UUID of the job posting. Validated by the analyzer. |
 | `files`         | yes      | files  | One or more uploaded files. At least one is required. |
+| `file_titles`   | no       | strings | Optional display titles aligned with `files` (form question text). Empty values fall back to a human filename or `Document`. |
+| `links`         | no       | strings | Optional public URLs to enrich. |
 
 The analyzer **downloads nothing**. The worker must upload the file bytes that
-it fetched from MinIO as `multipart/form-data` file parts.
+it fetched from MinIO as `multipart/form-data` file parts. When `file_titles`
+are sent, send one value per `files` part, in the same order.
 
 ### Supported formats
 
@@ -82,10 +85,14 @@ The worker persists **`result.analysis`** and **`result.analysis_en`** into
 - a single HTML string,
 - stripped of internal citation markers (`[document:0]`, `[github:...]`,
   `[web:...]`, `[job_description]`, `[cv_and_resume]`),
-- external evidence references use the full source URL rather than a display name,
+- model `[[S1]]` tokens rewritten to `[1]`, `[2]`, … in source order,
+- a `Sumber` / `Sources` ordered list appended by the analyzer (not the model):
+  document items use the provided file title (form question text), and
+  external items use the source URL,
 - safe to render and store as-is.
 - translations of the same verdict; `analysis` is Indonesian and `analysis_en`
-  is English.
+  is English. The source list headings differ (`Sumber` / `Sources`); item
+  labels are the same in both languages.
 
 `sources` and `warnings` are supplementary metadata and may be ignored by the
 worker.

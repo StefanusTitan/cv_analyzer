@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import html
 import json
 import re
 import tempfile
@@ -38,6 +39,12 @@ ANCHOR_RE = re.compile(
     r"<a\b[^>]*?href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", re.IGNORECASE
 )
 SOURCE_TOKEN_RE = re.compile(r"\[\[S(\d+)\]\]", re.IGNORECASE)
+OPAQUE_FILENAME_RE = re.compile(
+    r"^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+    r"|[0-9a-f]{16,})$",
+    re.IGNORECASE,
+)
+LEGEND_TITLE_MAX_CHARS = 60
 Document = tuple[int, str, str]
 
 
@@ -99,13 +106,17 @@ class CVAnalyzer:
             )
 
     async def _prepare_documents(
-        self, files: list[UploadFile], directory: str
-    ) -> tuple[list[Document], list[str]]:
-        """Read uploads, detect type, extract text. Independent of job posting."""
+        self,
+        files: list[UploadFile],
+        directory: str,
+        file_titles: list[str] | None = None,
+    ) -> tuple[list[Document], list[str], dict[int, str]]:
         warnings: list[str] = []
         total_size = 0
         uploads: list[tuple[int, Path, str, str]] = []
         documents: list[Document] = []
+        titles = list(file_titles or [])
+        title_by_index: dict[int, str] = {}
 
         for index, upload in enumerate(files):
             data = await self._read_upload(upload)
@@ -124,6 +135,10 @@ class CVAnalyzer:
             filename = Path(upload.filename or f"upload-{index}").name[:200]
             path = Path(directory) / f"{index}-{filename}"
             await asyncio.to_thread(path.write_bytes, data)
+            provided = titles[index] if index < len(titles) else None
+            title_by_index[index] = CVAnalyzer._document_display_title(
+                provided, filename
+            )
             uploads.append((index, path, kind, filename))
 
         extracted = await asyncio.gather(
@@ -137,6 +152,7 @@ class CVAnalyzer:
                 documents.append((index, filename, text_or_error))
             else:
                 warnings.append(f"No text extracted from {filename}")
+                title_by_index.pop(index, None)
 
         if not documents:
             raise UploadError(
@@ -144,7 +160,7 @@ class CVAnalyzer:
                 422,
                 "empty_document",
             )
-        return documents, warnings
+        return documents, warnings, title_by_index
 
     def _build_cv(self, documents: list[Document]) -> tuple[str, set[int], bool]:
         limit = self.settings.cv_max_extracted_chars
@@ -281,6 +297,7 @@ class CVAnalyzer:
         files: list[UploadFile] | None,
         request_id: str | None = None,
         links: list[str] | None = None,
+        file_titles: list[str] | None = None,
     ) -> AnalyzeResult:
         started = time.perf_counter()
         stage = "validate_upload"
@@ -297,6 +314,8 @@ class CVAnalyzer:
             self._log_failure(request_id, stage, error.code, error.status_code)
             raise error
         files = files or []
+        if isinstance(file_titles, str):
+            file_titles = [file_titles]
 
         warnings: list[str] = []
         sources: list[dict] = []
@@ -310,16 +329,16 @@ class CVAnalyzer:
                 stage = "job_and_documents"
                 parallel_started = time.perf_counter()
                 document_task = (
-                    self._prepare_documents(files, directory)
+                    self._prepare_documents(files, directory, file_titles)
                     if files
-                    else asyncio.sleep(0, result=([], []))
+                    else asyncio.sleep(0, result=([], [], {}))
                 )
                 job_posting, prepared = await asyncio.gather(
                     self.job_postings.fetch(job_posting_id),
                     document_task,
                 )
                 prepared_at = time.perf_counter()
-                documents, prep_warnings = prepared
+                documents, prep_warnings, title_by_index = prepared
                 warnings.extend(prep_warnings)
                 job_title = job_posting.title
                 job_description = job_posting.description
@@ -337,7 +356,7 @@ class CVAnalyzer:
                         "type": "document",
                         "kind": "candidate_document",
                         "access_status": "provided",
-                        "title": filename,
+                        "title": title_by_index.get(index) or "Document",
                     }
                     for index, filename, _ in documents
                     if index in included_ids
@@ -424,6 +443,12 @@ class CVAnalyzer:
                 stage = "format"
                 analysis, analysis_en = self._prepare_bilingual_summary(
                     raw_analysis, analysis_sources
+                )
+                analysis = CVAnalyzer._with_source_legend(
+                    analysis, analysis_sources, "Sumber"
+                )
+                analysis_en = CVAnalyzer._with_source_legend(
+                    analysis_en, analysis_sources, "Sources"
                 )
                 supported_citations = set(
                     self._citation_replacements(analysis_sources)
@@ -666,27 +691,66 @@ class CVAnalyzer:
 
     @staticmethod
     def _citation_replacements(evidence_sources: list[dict]) -> dict[str, str]:
-        document_kinds = []
-        for source in evidence_sources:
-            if source.get("type") != "document":
-                continue
-            title = str(source.get("title") or "").lower()
-            document_kinds.append("Resume" if "resume" in title else "CV")
+        return {
+            str(position): f"[{position}]"
+            for position, _source in enumerate(evidence_sources, start=1)
+        }
 
-        totals = {kind: document_kinds.count(kind) for kind in set(document_kinds)}
-        seen: dict[str, int] = {}
-        document_position = 0
-        replacements: dict[str, str] = {}
-        for position, source in enumerate(evidence_sources, start=1):
-            if source.get("type") == "document":
-                kind = document_kinds[document_position]
-                document_position += 1
-                seen[kind] = seen.get(kind, 0) + 1
-                suffix = f" {seen[kind]}" if totals[kind] > 1 else ""
-                replacements[str(position)] = f"[{kind}{suffix}]"
-            else:
-                replacements[str(position)] = str(source.get("url") or "")
-        return replacements
+    @staticmethod
+    def _clean_title(value: str | None) -> str | None:
+        if not value:
+            return None
+        text = re.sub(r"\s+", " ", str(value).strip())
+        return text or None
+
+    @staticmethod
+    def _filename_display_title(filename: str) -> str | None:
+        name = Path(filename or "").name
+        stem = Path(name).stem
+        if not stem or OPAQUE_FILENAME_RE.match(stem):
+            return None
+        return name
+
+    @staticmethod
+    def _document_display_title(provided: str | None, filename: str) -> str:
+        return (
+            CVAnalyzer._clean_title(provided)
+            or CVAnalyzer._filename_display_title(filename)
+            or "Document"
+        )
+
+    @staticmethod
+    def _legend_label(source: dict) -> str:
+        if source.get("type") == "document":
+            text = CVAnalyzer._clean_title(str(source.get("title") or "")) or "Document"
+            if len(text) > LEGEND_TITLE_MAX_CHARS:
+                text = text[: LEGEND_TITLE_MAX_CHARS - 1].rstrip() + "…"
+            return html.escape(text, quote=False)
+        url = str(source.get("url") or "").strip()
+        if url:
+            return html.escape(url, quote=False)
+        return "Document"
+
+    @staticmethod
+    def _source_legend_html(evidence_sources: list[dict], heading: str) -> str:
+        if not evidence_sources:
+            return ""
+        items = "".join(
+            f"<li>{CVAnalyzer._legend_label(source)}</li>"
+            for source in evidence_sources
+        )
+        return f"<p><b>{heading}:</b></p><ol>{items}</ol>"
+
+    @staticmethod
+    def _with_source_legend(
+        summary: str, evidence_sources: list[dict], heading: str
+    ) -> str:
+        legend = CVAnalyzer._source_legend_html(evidence_sources, heading)
+        if not legend:
+            return summary
+        if not summary:
+            return legend
+        return f"{summary}\n{legend}"
 
     @staticmethod
     def _resolve_citations(summary: str, evidence_sources: list[dict]) -> str:

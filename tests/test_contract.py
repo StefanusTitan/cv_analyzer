@@ -191,11 +191,14 @@ async def post(
     job_posting_id: str = JOB_POSTING_ID,
     files: list[tuple[str, tuple[str, bytes, str]]] | None = None,
     links: list[str] | None = None,
+    file_titles: list[str] | None = None,
     omit_files: bool = False,
 ) -> httpx.Response:
-    data = {"job_posting_id": job_posting_id}
+    data: dict[str, Any] = {"job_posting_id": job_posting_id}
     if links is not None:
         data["links"] = links
+    if file_titles is not None:
+        data["file_titles"] = file_titles
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         kwargs: dict[str, Any] = {"data": data}
@@ -226,6 +229,34 @@ def test_valid_pdf_returns_200_and_nonempty_analysis():
     assert body["result"]["analysis_en"]
     assert isinstance(body["result"]["sources"], list)
     assert isinstance(body["result"]["warnings"], list)
+    assert "<b>Sumber:</b>" in body["result"]["analysis"]
+    assert "<li>cv.pdf</li>" in body["result"]["analysis"]
+
+
+def test_file_titles_appear_in_source_legend():
+    app = build_app(
+        make_analyzer(
+            llm=FakeLLM(
+                response=bilingual_analysis(
+                    "Kandidat cukup sesuai [[S1]].",
+                    "The candidate is a moderate fit [[S1]].",
+                )
+            )
+        )
+    )
+    response = run(
+        post(
+            app,
+            files=[("files", ("uuid.pdf", make_pdf(), "application/pdf"))],
+            file_titles=["Kirimkan CVmu"],
+        )
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert "[1]" in body["result"]["analysis"]
+    assert "<li>Kirimkan CVmu</li>" in body["result"]["analysis"]
+    assert "<li>Kirimkan CVmu</li>" in body["result"]["analysis_en"]
+    assert body["result"]["sources"][0]["title"] == "Kirimkan CVmu"
 
 
 def test_valid_docx_returns_200_and_nonempty_analysis():
@@ -325,8 +356,14 @@ def test_success_response_preserves_result_analysis_field():
     )
     response = run(post(app))
     assert response.status_code == 200
-    assert response.json()["result"]["analysis"] == "Ringkasan rekrutmen siap tampil."
-    assert response.json()["result"]["analysis_en"] == "Display-ready hiring summary."
+    assert response.json()["result"]["analysis"].startswith(
+        "Ringkasan rekrutmen siap tampil."
+    )
+    assert "<b>Sumber:</b>" in response.json()["result"]["analysis"]
+    assert response.json()["result"]["analysis_en"].startswith(
+        "Display-ready hiring summary."
+    )
+    assert "<b>Sources:</b>" in response.json()["result"]["analysis_en"]
 
 
 def test_analysis_output_strips_internal_document_markers():
@@ -383,8 +420,12 @@ def test_employee_worker_contract_persists_result_analysis():
     analysis_en = body["result"]["analysis_en"]
     assert isinstance(analysis, str)
     assert isinstance(analysis_en, str)
-    assert analysis == "Cocok kuat dengan pengalaman backend yang dapat diverifikasi."
-    assert analysis_en == "Strong fit with verifiable backend experience."
+    assert analysis.startswith(
+        "Cocok kuat dengan pengalaman backend yang dapat diverifikasi."
+    )
+    assert "<b>Sumber:</b>" in analysis
+    assert analysis_en.startswith("Strong fit with verifiable backend experience.")
+    assert "<b>Sources:</b>" in analysis_en
 
 
 # ---------------------------------------------------------------------------

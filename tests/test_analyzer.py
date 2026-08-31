@@ -291,12 +291,11 @@ def test_bilingual_summary_resolves_trusted_source_tokens_without_rejecting_gaps
 
     indonesian, english = CVAnalyzer._prepare_bilingual_summary(raw, sources)
 
-    assert "Pengalaman produksi [Resume]." in indonesian
-    assert "Production experience [Resume]." in english
-    assert "https://github.com/candidate/project" in indonesian
-    assert "https://github.com/candidate/project" in english
-    assert "https://github.com/candidate/project https://github.com/candidate/other" in indonesian
-    assert "https://github.com/candidate/project https://github.com/candidate/other" in english
+    assert "Pengalaman produksi [1]." in indonesian
+    assert "Production experience [1]." in english
+    assert "Proyek publik [2] [3]." in indonesian
+    assert "Public project [2] [3]." in english
+    assert "https://github.com/candidate/project" not in indonesian
     assert "S99" not in indonesian
     assert "S99" not in english
     assert "example.com" not in indonesian
@@ -313,13 +312,13 @@ def test_summary_repairs_stray_list_closing_tag_after_heading():
     )
 
 
-def test_document_citation_labels_number_repeated_types_only():
+def test_document_citation_tokens_are_numbered():
     sources = [
         {
             "id": "document:0",
             "url": "document://0/first-cv.pdf",
             "type": "document",
-            "title": "first-cv.pdf",
+            "title": "Kirimkan CVmu",
         },
         {
             "id": "document:1",
@@ -328,18 +327,91 @@ def test_document_citation_labels_number_repeated_types_only():
             "title": "resume.pdf",
         },
         {
-            "id": "document:2",
-            "url": "document://2/second-cv.pdf",
-            "type": "document",
-            "title": "second-cv.pdf",
+            "id": "github:candidate/project",
+            "url": "https://github.com/candidate/project",
+            "type": "github",
+            "title": "candidate/project",
         },
     ]
 
     assert CVAnalyzer._citation_replacements(sources) == {
-        "1": "[CV 1]",
-        "2": "[Resume]",
-        "3": "[CV 2]",
+        "1": "[1]",
+        "2": "[2]",
+        "3": "[3]",
     }
+
+
+def test_source_legend_uses_question_titles_and_link_urls():
+    sources = [
+        {
+            "id": "document:0",
+            "type": "document",
+            "title": "Kirimkan CVmu",
+        },
+        {
+            "id": "github:candidate/project",
+            "url": "https://github.com/candidate/project",
+            "type": "github",
+        },
+    ]
+
+    legend = CVAnalyzer._source_legend_html(sources, "Sumber")
+    assert legend == (
+        "<p><b>Sumber:</b></p>"
+        "<ol>"
+        "<li>Kirimkan CVmu</li>"
+        "<li>https://github.com/candidate/project</li>"
+        "</ol>"
+    )
+
+
+def test_source_legend_escapes_and_truncates_titles():
+    sources = [
+        {
+            "id": "document:0",
+            "type": "document",
+            "title": "<script>alert(1)</script> " + ("x" * 80),
+        }
+    ]
+
+    legend = CVAnalyzer._source_legend_html(sources, "Sources")
+    assert "<script>" not in legend
+    assert "&lt;script&gt;" in legend
+    assert "…" in legend
+
+
+def test_opaque_filenames_become_document_labels():
+    assert CVAnalyzer._document_display_title(None, "cv.pdf") == "cv.pdf"
+    assert (
+        CVAnalyzer._document_display_title(
+            None, "a1b2c3d4-e5f6-47a8-8abc-1234567890ab.pdf"
+        )
+        == "Document"
+    )
+    assert CVAnalyzer._document_display_title("  Kirimkan CVmu  ", "uuid.pdf") == (
+        "Kirimkan CVmu"
+    )
+
+
+def test_file_titles_are_used_as_document_source_titles():
+    data = Pdf.from_text("Candidate built a production Python API").to_bytes()
+    upload = UploadFile(filename="a1b2c3d4-e5f6-47a8-8abc-1234567890ab.pdf", file=io.BytesIO(data))
+    service = analyzer()
+
+    result = asyncio.run(
+        service.analyze(
+            "32a594ac-9e1b-4a9e-a3be-6e6ca87db8ff",
+            [upload],
+            file_titles=["Kirimkan CVmu"],
+        )
+    )
+
+    assert result.sources[0].title == "Kirimkan CVmu"
+    assert "<li>Kirimkan CVmu</li>" in result.analysis
+    assert "<b>Sumber:</b>" in result.analysis
+    assert "<b>Sources:</b>" in result.analysis_en
+    assert "[CV" not in result.analysis
+    assert "[Resume]" not in result.analysis_en
 
 
 def test_external_evidence_input_identifies_sources_by_url():
@@ -462,6 +534,9 @@ def test_analyzer_returns_narrative_and_closes_upload():
     assert "[document:0]" not in result.analysis
     assert "[document:0]" not in result.analysis_en
     assert result.sources[0].id == "document:0"
+    assert "<b>Sumber:</b>" in result.analysis
+    assert "<li>candidate.pdf</li>" in result.analysis
+    assert "<b>Sources:</b>" in result.analysis_en
     assert "Analysis completed without supported source citations" in result.warnings
     assert service.llm.calls == 1
     assert service.llm.max_tokens == service.settings.llm_max_output_tokens
