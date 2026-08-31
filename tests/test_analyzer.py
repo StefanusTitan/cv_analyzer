@@ -220,9 +220,9 @@ def test_analysis_prompt_requires_html_and_forbids_markdown():
     assert "akumulasi tahun pengalaman kerja" in prompt
     assert "jika disebutkan" in prompt
     assert "jangan mengarang ambang tahun" in prompt
-    assert "Maksimal 300 kata per bahasa" in prompt
-    assert "Dua sampai tiga poin" in prompt
-    assert "dampak pengalaman terhadap pekerjaan" in prompt
+    assert "Jangan melebihi 300 kata per bahasa" in prompt
+    assert "Tiga poin substantif" in prompt
+    assert "dampak pengalaman" in prompt
     assert "<p><b>Rekomendasi untuk HR:</b>" in prompt
     assert "Pertanyaan Wawancara yang Disarankan" not in prompt
     assert "token sumber seperti [[S1]]" in prompt
@@ -471,6 +471,15 @@ def test_repository_evidence_is_required_in_llm_input():
     assert "[[S2]]" in evidence
     assert "README:" in evidence
     assert "Languages: TypeScript (900 bytes), CSS (100 bytes)" in evidence
+
+
+def test_analysis_prompt_targets_thorough_but_evidence_bound_output():
+    prompt = CVAnalyzer._analysis_prompt()
+
+    assert "270-300 kata per bahasa" in prompt
+    assert "Jangan melebihi 300 kata per bahasa" in prompt
+    assert "Tiga poin substantif" in prompt
+    assert "Jangan menambah pengulangan atau spekulasi" in prompt
 
 
 def test_missing_repository_citation_warns_without_retrying():
