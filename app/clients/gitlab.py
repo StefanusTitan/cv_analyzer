@@ -8,6 +8,7 @@ from app.core.errors import UpstreamError
 from app.utils.urls import is_gitlab_url
 
 PROFILE_PROJECT_SOURCES = 5
+README_EXCERPT_CHARS = 4_000
 
 
 class GitlabClient:
@@ -124,6 +125,34 @@ class GitlabClient:
             "excerpt": json.dumps(excerpt, ensure_ascii=False),
         }
 
+    async def _profile_project_source(self, project: dict) -> dict | None:
+        source = self._listed_project_source(project)
+        if source is None:
+            return None
+        project_path = str(project["path_with_namespace"])
+        project_id = quote(project_path, safe="")
+        languages, readme, package = await asyncio.gather(
+            self._get(f"https://gitlab.com/api/v4/projects/{project_id}/languages"),
+            self._text_file(project_path, "README.md"),
+            self._package_manifest(project_path),
+        )
+        if not isinstance(languages, dict):
+            raise UpstreamError(
+                "GitLab returned an unexpected response",
+                502,
+                "gitlab_invalid_response",
+            )
+        excerpt = json.loads(source["excerpt"])
+        excerpt.update(
+            {
+                "languages": languages,
+                "readme": readme[:README_EXCERPT_CHARS],
+                "package": package,
+            }
+        )
+        source["excerpt"] = json.dumps(excerpt, ensure_ascii=False)
+        return source
+
     async def _profile_sources(self, url: str, username: str) -> list[dict]:
         users = await self._get(
             f"https://gitlab.com/api/v4/users?username={quote(username, safe='')}"
@@ -166,14 +195,17 @@ class GitlabClient:
                 "excerpt": json.dumps(profile_excerpt, ensure_ascii=False),
             }
         ]
+        selected_projects: list[dict] = []
         for project in projects:
             if not isinstance(project, dict):
                 continue
-            source = self._listed_project_source(project)
-            if source is not None:
-                sources.append(source)
-            if len(sources) > PROFILE_PROJECT_SOURCES:
+            selected_projects.append(project)
+            if len(selected_projects) >= PROFILE_PROJECT_SOURCES:
                 break
+        enriched_projects = await asyncio.gather(
+            *(self._profile_project_source(project) for project in selected_projects)
+        )
+        sources.extend(source for source in enriched_projects if source is not None)
         return sources
 
     async def _project_source(self, url: str, project: str) -> list[dict]:
@@ -206,7 +238,7 @@ class GitlabClient:
             if isinstance(license_data, dict)
             else None,
             "archived": project_info.get("archived"),
-            "readme": readme,
+            "readme": readme[:README_EXCERPT_CHARS],
             "package": package,
         }
         return [

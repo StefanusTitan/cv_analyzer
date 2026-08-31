@@ -93,8 +93,8 @@ class FakeLLM:
         match = re.match(r"JOB POSTING ID: ([^\n]+)", user)
         jid = match.group(1) if match else "unknown"
         return bilingual_analysis(
-            f"Kandidat cukup sesuai untuk {jid} berdasarkan [document:0].",
-            f"The candidate is a moderate fit for {jid} based on [document:0].",
+            f"Kandidat cukup sesuai untuk {jid} berdasarkan [[S1]].",
+            f"The candidate is a moderate fit for {jid} based on [[S1]].",
         )
 
 
@@ -230,7 +230,7 @@ def test_valid_pdf_returns_200_and_nonempty_analysis():
     assert isinstance(body["result"]["sources"], list)
     assert isinstance(body["result"]["warnings"], list)
     assert "<b>Sumber:</b>" in body["result"]["analysis"]
-    assert "<li>cv.pdf</li>" in body["result"]["analysis"]
+    assert "<li>[1] cv.pdf</li>" in body["result"]["analysis"]
 
 
 def test_file_titles_appear_in_source_legend():
@@ -254,8 +254,8 @@ def test_file_titles_appear_in_source_legend():
     assert response.status_code == 200
     body = response.json()
     assert "[1]" in body["result"]["analysis"]
-    assert "<li>Kirimkan CVmu</li>" in body["result"]["analysis"]
-    assert "<li>Kirimkan CVmu</li>" in body["result"]["analysis_en"]
+    assert "<li>[1] Kirimkan CVmu</li>" in body["result"]["analysis"]
+    assert "<li>[1] Kirimkan CVmu</li>" in body["result"]["analysis_en"]
     assert body["result"]["sources"][0]["title"] == "Kirimkan CVmu"
 
 
@@ -348,8 +348,8 @@ def test_success_response_preserves_result_analysis_field():
         make_analyzer(
             llm=FakeLLM(
                 response=bilingual_analysis(
-                    "Ringkasan rekrutmen siap tampil.",
-                    "Display-ready hiring summary.",
+                    "Ringkasan rekrutmen siap tampil. [[S1]]",
+                    "Display-ready hiring summary. [[S1]]",
                 )
             )
         )
@@ -398,8 +398,8 @@ def test_employee_worker_contract_persists_result_analysis():
     analyzer = make_analyzer(
         llm=FakeLLM(
             response=bilingual_analysis(
-                "Cocok kuat dengan pengalaman backend yang dapat diverifikasi.",
-                "Strong fit with verifiable backend experience.",
+                "Cocok kuat dengan pengalaman backend yang dapat diverifikasi. [[S1]]",
+                "Strong fit with verifiable backend experience. [[S1]]",
             )
         ),
         job_postings=FakeJobPostingClient(default_posting()),

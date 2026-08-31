@@ -23,8 +23,8 @@ class FakeLLM:
         self.max_tokens = max_tokens
         return json.dumps(
             {
-                "id": "Kandidat cukup sesuai berdasarkan [document:0].",
-                "en": "The candidate is a moderate fit based on [document:0].",
+                "id": "Kandidat cukup sesuai berdasarkan [[S1]].",
+                "en": "The candidate is a moderate fit based on [[S1]].",
             },
             ensure_ascii=False,
         )
@@ -358,10 +358,10 @@ def test_source_legend_uses_question_titles_and_link_urls():
     legend = CVAnalyzer._source_legend_html(sources, "Sumber")
     assert legend == (
         "<p><b>Sumber:</b></p>"
-        "<ol>"
-        "<li>Kirimkan CVmu</li>"
-        "<li>https://github.com/candidate/project</li>"
-        "</ol>"
+        "<ul>"
+        "<li>[1] Kirimkan CVmu</li>"
+        "<li>[2] https://github.com/candidate/project</li>"
+        "</ul>"
     )
 
 
@@ -407,7 +407,7 @@ def test_file_titles_are_used_as_document_source_titles():
     )
 
     assert result.sources[0].title == "Kirimkan CVmu"
-    assert "<li>Kirimkan CVmu</li>" in result.analysis
+    assert "<li>[1] Kirimkan CVmu</li>" in result.analysis
     assert "<b>Sumber:</b>" in result.analysis
     assert "<b>Sources:</b>" in result.analysis_en
     assert "[CV" not in result.analysis
@@ -433,9 +433,106 @@ def test_external_evidence_input_identifies_sources_by_url():
 
     assert "[[S1]] WEBSITE: https://example.com/profile" in evidence
     assert "--- WEBSITE [[S1]] ---" in evidence
-    assert "SOURCE URL: https://example.com/profile" in evidence
+    assert evidence.count("https://example.com/profile") == 1
     assert "Gunakan token sumber" in evidence
     assert "Candidate Profile" not in evidence
+
+
+def test_repository_evidence_is_required_in_llm_input():
+    evidence = CVAnalyzer._format_llm_input(
+        "job-id",
+        "Frontend Engineer",
+        "Build Vue applications.",
+        "Candidate builds interfaces.",
+        [
+            {
+                "id": "document:0",
+                "type": "document",
+                "kind": "resume",
+                "title": "CV",
+            },
+            {
+                "id": "github:candidate/dashboard",
+                "url": "https://github.com/candidate/dashboard",
+                "type": "github",
+                "kind": "repository",
+                "title": "candidate/dashboard",
+                "excerpt": json.dumps(
+                    {
+                        "languages": {"TypeScript": 900, "CSS": 100},
+                        "readme": "Vue dashboard",
+                    }
+                ),
+            },
+        ],
+    )
+
+    assert "=== REQUIRED REPOSITORY EVIDENCE ===" in evidence
+    assert "[[S2]]" in evidence
+    assert "README:" in evidence
+    assert "Languages: TypeScript (900 bytes), CSS (100 bytes)" in evidence
+
+
+def test_missing_repository_citation_warns_without_retrying():
+    class RepositoryIgnoringLLM:
+        def __init__(self):
+            self.calls = 0
+
+        async def text_completion(
+            self, system: str, user: str, *, max_tokens: int | None = None
+        ) -> str:
+            self.calls += 1
+            return json.dumps(
+                {
+                    "id": "Kandidat sesuai [[S1]].",
+                    "en": "The candidate fits [[S1]].",
+                }
+            )
+
+    class RepositoryGithub:
+        async def fetch(self, url: str):
+            return [
+                {
+                    "id": "github:candidate/dashboard",
+                    "url": url,
+                    "type": "github",
+                    "title": "candidate/dashboard",
+                    "excerpt": json.dumps(
+                        {
+                            "languages": {"TypeScript": 1000},
+                            "readme": "Vue dashboard",
+                            "package": {"dependencies": ["vue"]},
+                        }
+                    ),
+                }
+            ]
+
+    llm = RepositoryIgnoringLLM()
+    service = CVAnalyzer(
+        settings(),
+        llm,
+        RepositoryGithub(),
+        NoopEnricher(),
+        NoopEnricher(),
+        NoopEnricher(),
+        NoopEnricher(),
+        NoopEnricher(),
+        FakeJobPostingClient(),
+    )
+    data = Pdf.from_text(
+        "Candidate built interfaces. https://github.com/candidate/dashboard"
+    ).to_bytes()
+    upload = UploadFile(filename="candidate.pdf", file=io.BytesIO(data))
+
+    result = asyncio.run(
+        service.analyze("32a594ac-9e1b-4a9e-a3be-6e6ca87db8ff", [upload])
+    )
+
+    assert llm.calls == 1
+    assert "[1]" in result.analysis
+    assert "<li>[1] candidate.pdf</li>" in result.analysis
+    assert "https://github.com/candidate/dashboard" not in result.analysis
+    assert any("repository evidence" in warning for warning in result.warnings)
 
 
 def test_github_readme_is_included_in_llm_evidence():
@@ -535,9 +632,9 @@ def test_analyzer_returns_narrative_and_closes_upload():
     assert "[document:0]" not in result.analysis_en
     assert result.sources[0].id == "document:0"
     assert "<b>Sumber:</b>" in result.analysis
-    assert "<li>candidate.pdf</li>" in result.analysis
+    assert "<li>[1] candidate.pdf</li>" in result.analysis
     assert "<b>Sources:</b>" in result.analysis_en
-    assert "Analysis completed without supported source citations" in result.warnings
+    assert "Analysis completed without supported source citations" not in result.warnings
     assert service.llm.calls == 1
     assert service.llm.max_tokens == service.settings.llm_max_output_tokens
     assert upload.file.closed

@@ -12,6 +12,7 @@ from app.utils.urls import is_github_url
 # Repository sources emitted alongside a profile fetch so the LLM can cite
 # specific project URLs even when the CV only links the profile page.
 PROFILE_REPO_SOURCES = 5
+README_EXCERPT_CHARS = 4_000
 
 
 class GithubClient:
@@ -72,7 +73,9 @@ class GithubClient:
         if not isinstance(encoded, str) or not encoded:
             return ""
         try:
-            return base64.b64decode(encoded).decode("utf-8", errors="replace")[:10_000]
+            return base64.b64decode(encoded).decode("utf-8", errors="replace")[
+                :README_EXCERPT_CHARS
+            ]
         except (binascii.Error, ValueError) as exc:
             raise UpstreamError(
                 "GitHub README could not be decoded", 502, "github_invalid_response"
@@ -136,15 +139,22 @@ class GithubClient:
             "title": profile.get("name"),
             "excerpt": json.dumps(excerpt, ensure_ascii=False),
         }
-        repo_sources: list[dict] = []
+        selected_repositories: list[dict] = []
         for repo in repositories:
             if not isinstance(repo, dict) or repo.get("fork"):
                 continue
-            source = self._listed_repo_source(owner, repo)
-            if source is not None:
-                repo_sources.append(source)
-            if len(repo_sources) >= PROFILE_REPO_SOURCES:
+            selected_repositories.append(repo)
+            if len(selected_repositories) >= PROFILE_REPO_SOURCES:
                 break
+        enriched_repositories = await asyncio.gather(
+            *(
+                self._profile_repository_source(owner, repo)
+                for repo in selected_repositories
+            )
+        )
+        repo_sources = [
+            source for source in enriched_repositories if source is not None
+        ]
         return [profile_source, *repo_sources]
 
     @staticmethod
@@ -166,6 +176,31 @@ class GithubClient:
             "title": str(repo.get("full_name") or f"{owner}/{name}"),
             "excerpt": json.dumps(excerpt, ensure_ascii=False),
         }
+
+    async def _profile_repository_source(self, owner: str, repo: dict) -> dict | None:
+        source = self._listed_repo_source(owner, repo)
+        if source is None:
+            return None
+        repo_name = str(repo["name"])
+        languages, readme, package = await asyncio.gather(
+            self._get(f"https://api.github.com/repos/{owner}/{repo_name}/languages"),
+            self._readme_excerpt(owner, repo_name),
+            self._package_manifest(owner, repo_name),
+        )
+        if not isinstance(languages, dict):
+            raise UpstreamError(
+                "GitHub returned an unexpected response", 502, "github_invalid_response"
+            )
+        excerpt = json.loads(source["excerpt"])
+        excerpt.update(
+            {
+                "languages": languages,
+                "readme": readme,
+                "package": package,
+            }
+        )
+        source["excerpt"] = json.dumps(excerpt, ensure_ascii=False)
+        return source
 
     async def fetch(self, url: str) -> list[dict]:
         if not is_github_url(url):

@@ -440,23 +440,31 @@ class CVAnalyzer:
                     user_prompt,
                     max_tokens=self.settings.llm_max_output_tokens,
                 )
+                repository_positions = self._repository_evidence_positions(
+                    analysis_sources
+                )
+                returned_citations = set(SOURCE_TOKEN_RE.findall(raw_analysis))
                 stage = "format"
                 analysis, analysis_en = self._prepare_bilingual_summary(
                     raw_analysis, analysis_sources
                 )
+                supported_citations = set(self._citation_replacements(analysis_sources))
+                cited_positions = returned_citations.intersection(supported_citations)
                 analysis = CVAnalyzer._with_source_legend(
-                    analysis, analysis_sources, "Sumber"
+                    analysis, analysis_sources, "Sumber", cited_positions
                 )
                 analysis_en = CVAnalyzer._with_source_legend(
-                    analysis_en, analysis_sources, "Sources"
+                    analysis_en, analysis_sources, "Sources", cited_positions
                 )
-                supported_citations = set(
-                    self._citation_replacements(analysis_sources)
-                )
-                returned_citations = set(SOURCE_TOKEN_RE.findall(raw_analysis))
                 if not returned_citations.intersection(supported_citations):
                     warnings.append(
                         "Analysis completed without supported source citations"
+                    )
+                if repository_positions and returned_citations.isdisjoint(
+                    repository_positions
+                ):
+                    warnings.append(
+                        "Analysis completed without available repository evidence citations"
                     )
                 if returned_citations.difference(supported_citations):
                     warnings.append("Unsupported source citations were omitted")
@@ -733,19 +741,37 @@ class CVAnalyzer:
 
     @staticmethod
     def _source_legend_html(evidence_sources: list[dict], heading: str) -> str:
-        if not evidence_sources:
+        return CVAnalyzer._filtered_source_legend_html(evidence_sources, heading, None)
+
+    @staticmethod
+    def _filtered_source_legend_html(
+        evidence_sources: list[dict],
+        heading: str,
+        cited_positions: set[str] | None,
+    ) -> str:
+        selected = [
+            (position, source)
+            for position, source in enumerate(evidence_sources, start=1)
+            if cited_positions is None or str(position) in cited_positions
+        ]
+        if not selected:
             return ""
         items = "".join(
-            f"<li>{CVAnalyzer._legend_label(source)}</li>"
-            for source in evidence_sources
+            f"<li>[{position}] {CVAnalyzer._legend_label(source)}</li>"
+            for position, source in selected
         )
-        return f"<p><b>{heading}:</b></p><ol>{items}</ol>"
+        return f"<p><b>{heading}:</b></p><ul>{items}</ul>"
 
     @staticmethod
     def _with_source_legend(
-        summary: str, evidence_sources: list[dict], heading: str
+        summary: str,
+        evidence_sources: list[dict],
+        heading: str,
+        cited_positions: set[str] | None = None,
     ) -> str:
-        legend = CVAnalyzer._source_legend_html(evidence_sources, heading)
+        legend = CVAnalyzer._filtered_source_legend_html(
+            evidence_sources, heading, cited_positions
+        )
         if not legend:
             return summary
         if not summary:
@@ -898,19 +924,44 @@ class CVAnalyzer:
             for position, source in external:
                 source_type = source.get("type", "unknown")
                 label = source_type.upper()
-                url = source.get("url", "")
                 excerpt = CVAnalyzer._format_excerpt(
                     source.get("excerpt") or "", source_type
                 )
                 parts.append(f"--- {label} [[S{position}]] ---")
-                parts.append(f"SOURCE URL: {url}")
                 if excerpt:
                     parts.append(excerpt)
                 parts.append("")
 
+        repository_tokens = [
+            f"[[S{position}]]"
+            for position, source in enumerate(evidence_sources, start=1)
+            if source.get("type") in {"github", "gitlab", "bitbucket"}
+            and source.get("kind") == "repository"
+            and source.get("excerpt")
+        ]
+        if repository_tokens:
+            parts.append("=== REQUIRED REPOSITORY EVIDENCE ===")
+            parts.append(
+                "Gunakan setidaknya satu temuan konkret dan relevan dari README, rincian "
+                "bahasa, atau manifest repositori dalam Alasan Kandidat Cocok atau Hal yang "
+                "Perlu Dipastikan. Sebutkan nama repositori dan kutip token sumbernya: "
+                + ", ".join(repository_tokens)
+            )
+            parts.append("")
+
         parts.append("=== CV / RESUME ===")
         parts.append(cv)
         return "\n".join(parts)
+
+    @staticmethod
+    def _repository_evidence_positions(evidence_sources: list[dict]) -> set[str]:
+        return {
+            str(position)
+            for position, source in enumerate(evidence_sources, start=1)
+            if source.get("type") in {"github", "gitlab", "bitbucket"}
+            and source.get("kind") == "repository"
+            and source.get("excerpt")
+        }
 
     @staticmethod
     def _format_excerpt(excerpt: str, source_type: str) -> str:
@@ -927,7 +978,27 @@ class CVAnalyzer:
     @staticmethod
     def _format_structured_source_data(data: dict) -> str:
         lines: list[str] = []
-        skip_keys = {"html_url"}
+        skip_keys = {
+            "archived",
+            "created_at",
+            "created_on",
+            "followers",
+            "fork",
+            "forks",
+            "has_issues",
+            "html_url",
+            "is_fork",
+            "is_private",
+            "last_activity_at",
+            "open_issues",
+            "public_repos",
+            "scm",
+            "size",
+            "stars",
+            "pushed_at",
+            "updated_at",
+            "updated_on",
+        }
         for key, value in data.items():
             if key in skip_keys:
                 continue
@@ -1003,7 +1074,8 @@ class CVAnalyzer:
             "Pertahankan konteks sumber: pisahkan pengalaman kerja, proyek, pendidikan, dan daftar "
             "keahlian menjadi klaim yang berbeda; jangan merangkainya seolah semua teknologi dipakai "
             "dalam pekerjaan yang sama. Untuk bukti repositori, sebutkan repositori dan hanya fakta "
-            "yang terlihat pada README atau manifest. Manifest hanya menunjukkan dependensi dan skrip "
+            "yang terlihat pada README, rincian bahasa, atau manifest. Manifest hanya menunjukkan "
+            "dependensi dan skrip "
             "yang dideklarasikan, bukan penggunaan aktual, kualitas kode, atau kontribusi kandidat. "
             "Persyaratan di JOB DESCRIPTION bukan bukti pengalaman kandidat. Jika code review, "
             "automated testing, CI/CD, kolaborasi, atau persyaratan lain tidak dinyatakan eksplisit "

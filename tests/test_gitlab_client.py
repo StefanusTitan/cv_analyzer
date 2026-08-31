@@ -41,6 +41,12 @@ def test_profile_fetch_emits_citable_public_project_sources():
                     }
                 ],
             )
+        if path.endswith("/languages"):
+            return httpx.Response(200, json={"Python": 90.0, "Shell": 10.0})
+        if "/repository/files/README.md/raw" in path:
+            return httpx.Response(200, text="# Public Project\n\nFastAPI service")
+        if "/repository/files/package.json/raw" in path:
+            return httpx.Response(404)
         raise AssertionError(f"Unexpected endpoint {request.url}")
 
     async def run():
@@ -54,6 +60,10 @@ def test_profile_fetch_emits_citable_public_project_sources():
     assert json.loads(sources[0]["excerpt"])["job_title"] == "Engineer"
     assert sources[1]["id"] == "gitlab:candidate/public-project"
     assert sources[1]["url"] == "https://gitlab.com/candidate/public-project"
+    project = json.loads(sources[1]["excerpt"])
+    assert project["languages"] == {"Python": 90.0, "Shell": 10.0}
+    assert project["readme"] == "# Public Project\n\nFastAPI service"
+    assert project["package"] is None
 
 
 def test_repository_fetch_includes_languages_readme_and_manifest():

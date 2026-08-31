@@ -9,6 +9,7 @@ from app.core.errors import UpstreamError
 
 
 def test_profile_fetch_emits_citable_repository_sources():
+    encoded_readme = base64.b64encode(b"# Project\n\nBuilt with FastAPI.").decode()
     repos = [
         {
             "name": f"project-{index}",
@@ -46,6 +47,12 @@ def test_profile_fetch_emits_citable_repository_sources():
             )
         if request.url.path == "/users/octocat/repos":
             return httpx.Response(200, json=repos)
+        if request.url.path.endswith("/languages"):
+            return httpx.Response(200, json={"Python": 1200, "Shell": 100})
+        if request.url.path.endswith("/readme"):
+            return httpx.Response(200, json={"content": encoded_readme})
+        if request.url.path.endswith("/contents/package.json"):
+            return httpx.Response(404, json={"message": "Not Found"})
         raise AssertionError(f"Unexpected endpoint {request.url.path}")
 
     async def run():
@@ -65,6 +72,9 @@ def test_profile_fetch_emits_citable_repository_sources():
     listed = json.loads(sources[1]["excerpt"])
     assert listed["description"] == "A project"
     assert listed["language"] == "Python"
+    assert listed["languages"] == {"Python": 1200, "Shell": 100}
+    assert listed["readme"] == "# Project\n\nBuilt with FastAPI."
+    assert listed["package"] is None
 
 
 def test_invalid_token_maps_to_auth_failed_code():

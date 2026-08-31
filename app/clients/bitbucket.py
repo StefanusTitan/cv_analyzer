@@ -9,6 +9,7 @@ from app.utils.urls import is_bitbucket_url
 
 PROFILE_REPOSITORY_SOURCES = 5
 TEXT_FILE_BYTES = 10_000
+README_EXCERPT_CHARS = 4_000
 
 
 class BitbucketClient:
@@ -163,6 +164,26 @@ class BitbucketClient:
             "excerpt": json.dumps(excerpt, ensure_ascii=False),
         }
 
+    async def _profile_repository_source(self, repository: dict) -> dict | None:
+        source = self._repository_source(repository)
+        if source is None:
+            return None
+        workspace, repository_name = str(repository["full_name"]).split("/", 1)
+        main_branch = repository.get("mainbranch")
+        reference = (
+            str(main_branch.get("name"))
+            if isinstance(main_branch, dict) and main_branch.get("name")
+            else "HEAD"
+        )
+        readme, package = await asyncio.gather(
+            self._text_file(workspace, repository_name, reference, "README.md"),
+            self._package_manifest(workspace, repository_name, reference),
+        )
+        excerpt = json.loads(source["excerpt"])
+        excerpt.update({"readme": readme[:README_EXCERPT_CHARS], "package": package})
+        source["excerpt"] = json.dumps(excerpt, ensure_ascii=False)
+        return source
+
     async def _profile_sources(self, url: str, workspace: str) -> list[dict]:
         repositories = await self._get(
             f"https://api.bitbucket.org/2.0/repositories/"
@@ -192,14 +213,20 @@ class BitbucketClient:
             ),
         }
         sources = [profile_source]
+        selected_repositories: list[dict] = []
         for repository in values:
             if not isinstance(repository, dict) or repository.get("is_private"):
                 continue
-            source = self._repository_source(repository)
-            if source is not None:
-                sources.append(source)
-            if len(sources) > PROFILE_REPOSITORY_SOURCES:
+            selected_repositories.append(repository)
+            if len(selected_repositories) >= PROFILE_REPOSITORY_SOURCES:
                 break
+        enriched_repositories = await asyncio.gather(
+            *(
+                self._profile_repository_source(repository)
+                for repository in selected_repositories
+            )
+        )
+        sources.extend(source for source in enriched_repositories if source is not None)
         return sources
 
     async def _direct_repository(
@@ -241,7 +268,7 @@ class BitbucketClient:
             "size": repository_info.get("size"),
             "has_issues": repository_info.get("has_issues"),
             "is_fork": bool(repository_info.get("parent")),
-            "readme": readme,
+            "readme": readme[:README_EXCERPT_CHARS],
             "package": package,
         }
         full_name = str(repository_info.get("full_name") or f"{workspace}/{repository}")
