@@ -287,6 +287,78 @@ def test_analysis_resolves_trusted_source_tokens_without_rejecting_gaps():
     assert "example.com" not in summary
 
 
+def test_numeric_citation_tokens_are_rewritten_like_source_tokens():
+    sources = [
+        {
+            "id": "document:0",
+            "type": "document",
+            "title": "candidate-resume.pdf",
+        }
+    ]
+
+    summary = CVAnalyzer._prepare_analysis(
+        "<p>Kandidat sesuai [[1]].</p>",
+        sources,
+    )
+
+    assert "Kandidat sesuai [1]." in summary
+    assert "[[1]]" not in summary
+
+
+def test_citation_only_or_json_llm_output_is_rejected():
+    sources = [
+        {
+            "id": "document:0",
+            "type": "document",
+            "title": "candidate-resume.pdf",
+        }
+    ]
+    for raw in (
+        "[[1]]",
+        "[[S1]]",
+        "[1]",
+        " [[1]] \n",
+        '{"analysis": "<p>Kandidat sesuai [[S1]]</p>"}',
+    ):
+        try:
+            CVAnalyzer._prepare_analysis(raw, sources)
+        except UpstreamError as exc:
+            assert exc.code == "llm_invalid_response"
+        else:
+            raise AssertionError(f"expected llm_invalid_response for {raw!r}")
+
+
+def test_citation_only_analysis_does_not_succeed():
+    class CitationOnlyLLM:
+        async def text_completion(
+            self, system: str, user: str, *, max_tokens: int | None = None
+        ) -> str:
+            return "[[1]]"
+
+    data = Pdf.from_text("Candidate built a production Python API").to_bytes()
+    upload = UploadFile(filename="candidate.pdf", file=io.BytesIO(data))
+    service = CVAnalyzer(
+        settings(),
+        CitationOnlyLLM(),
+        NoopEnricher(),
+        NoopEnricher(),
+        NoopEnricher(),
+        NoopEnricher(),
+        NoopEnricher(),
+        NoopEnricher(),
+        FakeJobPostingClient(),
+    )
+
+    try:
+        asyncio.run(
+            service.analyze("32a594ac-9e1b-4a9e-a3be-6e6ca87db8ff", [upload])
+        )
+    except UpstreamError as exc:
+        assert exc.code == "llm_invalid_response"
+    else:
+        raise AssertionError("expected llm_invalid_response")
+
+
 def test_summary_repairs_stray_list_closing_tag_after_heading():
     summary = CVAnalyzer._prepare_summary(
         "<p><b>What to confirm:</b></ul><ul><li>Testing depth.</li></ul>"

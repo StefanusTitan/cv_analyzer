@@ -45,7 +45,6 @@ class LLMClient:
                 temperature=0.3,
                 max_tokens=max_tokens or self.max_output_tokens,
                 enable_thinking=self.enable_thinking,
-                response_format={"type": "json_object"},
                 request_timeout=self.timeout_seconds,
             )
         except AuthenticationError as exc:

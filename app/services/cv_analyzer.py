@@ -38,7 +38,8 @@ MARKDOWN_RE = re.compile(
 ANCHOR_RE = re.compile(
     r"<a\b[^>]*?href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", re.IGNORECASE
 )
-SOURCE_TOKEN_RE = re.compile(r"\[\[S(\d+)\]\]", re.IGNORECASE)
+SOURCE_TOKEN_RE = re.compile(r"\[\[S?(\d+)\]\]", re.IGNORECASE)
+DISPLAY_CITATION_RE = re.compile(r"\[\d+\]")
 OPAQUE_FILENAME_RE = re.compile(
     r"^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
     r"|[0-9a-f]{16,})$",
@@ -660,6 +661,24 @@ class CVAnalyzer:
         )
 
     @staticmethod
+    def _is_json_payload(value: str) -> bool:
+        stripped = value.strip()
+        if not stripped or stripped[0] not in "{[":
+            return False
+        try:
+            json.loads(stripped)
+        except json.JSONDecodeError:
+            return False
+        return True
+
+    @staticmethod
+    def _has_analysis_prose(summary: str) -> bool:
+        text = SOURCE_TOKEN_RE.sub(" ", summary)
+        text = DISPLAY_CITATION_RE.sub(" ", text)
+        text = re.sub(r"<[^>]+>", " ", text)
+        return bool(re.search(r"[A-Za-zÀ-ÿ]", text))
+
+    @staticmethod
     def _prepare_analysis(
         raw: str, evidence_sources: list[dict] | None = None
     ) -> str:
@@ -667,11 +686,16 @@ class CVAnalyzer:
         if text.startswith("```"):
             text = re.sub(r"^```(?:html)?\s*", "", text, flags=re.IGNORECASE)
             text = re.sub(r"\s*```$", "", text)
+            text = text.strip()
+        if CVAnalyzer._is_json_payload(text):
+            raise CVAnalyzer._invalid_llm_response()
         summary = CVAnalyzer._prepare_summary(text)
         if not summary:
             raise CVAnalyzer._invalid_llm_response()
         if evidence_sources is not None:
             summary = CVAnalyzer._resolve_citations(summary, evidence_sources)
+        if not CVAnalyzer._has_analysis_prose(summary):
+            raise CVAnalyzer._invalid_llm_response()
         return summary
 
     @staticmethod
