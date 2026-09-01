@@ -3,7 +3,7 @@
 These tests pin the worker-facing contract used by the durable
 ``service_employees`` worker:
 
-* success shape contains ``result.analysis`` and ``result.analysis_en``
+* success shape contains one requested language and ``result.analysis``
 * permanent failures return a 4xx with a stable machine-readable ``errors`` code
 * retryable/upstream failures return a 5xx with a stable code
 * responses never leak exception stacks, upstream bodies, or extracted CV text
@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import io
-import json
 import os
 import re
 import tempfile
@@ -36,13 +35,6 @@ JOB_POSTING_ID = "32a594ac-9e1b-4a9e-a3be-6e6ca87db8ff"
 OTHER_JOB_POSTING_ID = "11111111-2222-3333-4444-555555555555"
 
 
-def bilingual_analysis(indonesian: str, english: str | None = None) -> str:
-    return json.dumps(
-        {"id": indonesian, "en": english if english is not None else indonesian},
-        ensure_ascii=False,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
@@ -50,7 +42,6 @@ def bilingual_analysis(indonesian: str, english: str | None = None) -> str:
 
 def make_settings(**overrides: Any) -> SimpleNamespace:
     base = {
-        "cv_max_files": 3,
         "cv_max_file_size_bytes": 10_485_760,
         "cv_max_total_size_bytes": 20_971_520,
         "cv_max_pages": 100,
@@ -92,10 +83,9 @@ class FakeLLM:
             return self.response
         match = re.match(r"JOB POSTING ID: ([^\n]+)", user)
         jid = match.group(1) if match else "unknown"
-        return bilingual_analysis(
-            f"Kandidat cukup sesuai untuk {jid} berdasarkan [[S1]].",
-            f"The candidate is a moderate fit for {jid} based on [[S1]].",
-        )
+        if "bahasa Inggris" in system:
+            return f"The candidate is a moderate fit for {jid} based on [[S1]]."
+        return f"Kandidat cukup sesuai untuk {jid} berdasarkan [[S1]]."
 
 
 class FakeJobPostingClient:
@@ -193,8 +183,12 @@ async def post(
     links: list[str] | None = None,
     file_titles: list[str] | None = None,
     omit_files: bool = False,
+    language: str = "id",
 ) -> httpx.Response:
-    data: dict[str, Any] = {"job_posting_id": job_posting_id}
+    data: dict[str, Any] = {
+        "job_posting_id": job_posting_id,
+        "language": language,
+    }
     if links is not None:
         data["links"] = links
     if file_titles is not None:
@@ -225,8 +219,9 @@ def test_valid_pdf_returns_200_and_nonempty_analysis():
     assert body["result"] is not None
     assert body["result"]["job_posting_id"] == JOB_POSTING_ID
     assert body["result"]["job_title"] == "Backend Engineer"
+    assert body["result"]["language"] == "id"
     assert body["result"]["analysis"]
-    assert body["result"]["analysis_en"]
+    assert "analysis_en" not in body["result"]
     assert isinstance(body["result"]["sources"], list)
     assert isinstance(body["result"]["warnings"], list)
     assert "<b>Sumber:</b>" in body["result"]["analysis"]
@@ -237,10 +232,7 @@ def test_file_titles_appear_in_source_legend():
     app = build_app(
         make_analyzer(
             llm=FakeLLM(
-                response=bilingual_analysis(
-                    "Kandidat cukup sesuai [[S1]].",
-                    "The candidate is a moderate fit [[S1]].",
-                )
+                response="Kandidat cukup sesuai [[S1]]."
             )
         )
     )
@@ -255,7 +247,6 @@ def test_file_titles_appear_in_source_legend():
     body = response.json()
     assert "[1]" in body["result"]["analysis"]
     assert "<li>[1] Kirimkan CVmu</li>" in body["result"]["analysis"]
-    assert "<li>[1] Kirimkan CVmu</li>" in body["result"]["analysis_en"]
     assert body["result"]["sources"][0]["title"] == "Kirimkan CVmu"
 
 
@@ -279,7 +270,6 @@ def test_valid_docx_returns_200_and_nonempty_analysis():
     assert response.status_code == 200
     body = response.json()
     assert body["result"]["analysis"]
-    assert body["result"]["analysis_en"]
 
 
 def test_multiple_accepted_files_still_work():
@@ -307,7 +297,6 @@ def test_multiple_accepted_files_still_work():
     result = response.json()["result"]
     assert len(result["sources"]) == 2
     assert result["analysis"]
-    assert result["analysis_en"]
 
 
 def test_selected_portfolio_link_is_enriched():
@@ -343,39 +332,30 @@ def test_selected_portfolio_link_is_enriched():
 
 
 def test_success_response_preserves_result_analysis_field():
-    """The employee worker persists ``result.analysis`` and ``result.analysis_en``."""
+    """The employee worker persists the requested ``result.analysis``."""
     app = build_app(
         make_analyzer(
             llm=FakeLLM(
-                response=bilingual_analysis(
-                    "Ringkasan rekrutmen siap tampil. [[S1]]",
-                    "Display-ready hiring summary. [[S1]]",
-                )
+                response="Display-ready hiring summary. [[S1]]"
             )
         )
     )
-    response = run(post(app))
+    response = run(post(app, language="en"))
     assert response.status_code == 200
+    assert response.json()["result"]["language"] == "en"
     assert response.json()["result"]["analysis"].startswith(
-        "Ringkasan rekrutmen siap tampil."
-    )
-    assert "<b>Sumber:</b>" in response.json()["result"]["analysis"]
-    assert response.json()["result"]["analysis_en"].startswith(
         "Display-ready hiring summary."
     )
-    assert "<b>Sources:</b>" in response.json()["result"]["analysis_en"]
+    assert "<b>Sources:</b>" in response.json()["result"]["analysis"]
+    assert "analysis_en" not in response.json()["result"]
 
 
 def test_analysis_output_strips_internal_document_markers():
     app = build_app(
         make_analyzer(
             llm=FakeLLM(
-                response=bilingual_analysis(
-                    "Cukup sesuai [document:0]; verifikasi backend [job_description] "
-                    "dan portofolio [github:owner/repo] and [web:https://x.test/].",
-                    "Moderate fit [document:0]; verify backend [job_description] "
-                    "and portfolio [github:owner/repo] and [web:https://x.test/].",
-                )
+                response="Cukup sesuai [document:0]; verifikasi backend [job_description] "
+                "dan portofolio [github:owner/repo] and [web:https://x.test/]."
             )
         )
     )
@@ -397,10 +377,7 @@ def test_employee_worker_contract_persists_result_analysis():
     """Exactly the interaction the durable employee-service worker performs."""
     analyzer = make_analyzer(
         llm=FakeLLM(
-            response=bilingual_analysis(
-                "Cocok kuat dengan pengalaman backend yang dapat diverifikasi. [[S1]]",
-                "Strong fit with verifiable backend experience. [[S1]]",
-            )
+            response="Strong fit with verifiable backend experience. [[S1]]"
         ),
         job_postings=FakeJobPostingClient(default_posting()),
     )
@@ -410,22 +387,18 @@ def test_employee_worker_contract_persists_result_analysis():
             app,
             job_posting_id=JOB_POSTING_ID,
             files=[("files", ("applicant.pdf", make_pdf(), "application/pdf"))],
+            language="en",
         )
     )
     assert response.status_code == 200
     body = response.json()
-    # The worker persists both language strings into service_employees.
     assert body["result"] is not None
+    assert body["result"]["language"] == "en"
     analysis = body["result"]["analysis"]
-    analysis_en = body["result"]["analysis_en"]
     assert isinstance(analysis, str)
-    assert isinstance(analysis_en, str)
-    assert analysis.startswith(
-        "Cocok kuat dengan pengalaman backend yang dapat diverifikasi."
-    )
-    assert "<b>Sumber:</b>" in analysis
-    assert analysis_en.startswith("Strong fit with verifiable backend experience.")
-    assert "<b>Sources:</b>" in analysis_en
+    assert analysis.startswith("Strong fit with verifiable backend experience.")
+    assert "<b>Sources:</b>" in analysis
+    assert "analysis_en" not in body["result"]
 
 
 # ---------------------------------------------------------------------------
@@ -442,16 +415,11 @@ def test_missing_files_returns_missing_files():
     assert body["errors"] == ["missing_files"]
 
 
-def test_too_many_files_returns_file_count_exceeded():
-    settings = make_settings(cv_max_files=3)
-    app = build_app(make_analyzer(settings=settings))
-    files = [
-        ("files", (f"cv{i}.pdf", make_pdf(f"content {i}"), "application/pdf"))
-        for i in range(4)
-    ]
-    response = run(post(app, files=files))
+def test_invalid_language_returns_invalid_language():
+    app = build_app(make_analyzer())
+    response = run(post(app, language="fr"))
     assert response.status_code == 400
-    assert response.json()["errors"] == ["file_count_exceeded"]
+    assert response.json()["errors"] == ["invalid_language"]
 
 
 def test_oversized_file_returns_file_size_exceeded():

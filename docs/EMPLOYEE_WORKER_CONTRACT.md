@@ -13,7 +13,7 @@ The analyzer is a **synchronous, stateless** compute service. It does **not**:
 - or accept arbitrary source URLs.
 
 The worker is responsible for durability and persistence; this service only
-analyzes uploaded bytes and returns a plain-text summary.
+analyzes uploaded bytes and returns an HTML summary.
 
 ## Endpoint
 
@@ -30,6 +30,7 @@ Content-Type: multipart/form-data
 | `files`         | yes      | files  | One or more uploaded files. At least one is required. |
 | `file_titles`   | no       | strings | Optional display titles aligned with `files` (form question text). Empty values fall back to a human filename or `Document`. |
 | `links`         | no       | strings | Optional public URLs to enrich. |
+| `language`      | no       | string | `id` or `en`; defaults to `id`. One request generates one language. |
 
 The analyzer **downloads nothing**. The worker must upload the file bytes that
 it fetched from MinIO as `multipart/form-data` file parts. When `file_titles`
@@ -55,7 +56,6 @@ content does not match its extension is rejected with `422 invalid_document`.
 | Per-file size                | 10 MiB         | `file_size_exceeded` (413)      |
 | Total upload size            | 20 MiB         | `total_size_exceeded` (413)     |
 | Gateway request body limit   | 25 MiB         | `request_size_exceeded` (413)   |
-| Maximum number of files      | 3              | `file_count_exceeded` (400)     |
 | Maximum PDF pages            | 100            | `page_limit_exceeded` (422)     |
 | Max extracted characters     | 100,000        | (truncated, not an error)       |
 
@@ -71,28 +71,29 @@ These are upper bounds; do not send larger payloads.
   "result": {
     "job_posting_id": "32a594ac-9e1b-4a9e-a3be-6e6ca87db8ff",
     "job_title": "Backend Engineer",
-    "analysis": "non-empty Indonesian HTML summary the worker should persist",
-    "analysis_en": "non-empty English HTML summary the worker should persist",
+    "language": "id",
+    "analysis": "non-empty HTML summary in the requested language",
     "sources": [],
     "warnings": []
   }
 }
 ```
 
-The worker persists **`result.analysis`** and **`result.analysis_en`** into
-`service_employees`. Both are:
+The worker verifies **`result.language`** and persists **`result.analysis`**
+into the matching language table in `service_employees`. The analysis is:
 
 - a single HTML string,
 - stripped of internal citation markers (`[document:0]`, `[github:...]`,
   `[web:...]`, `[job_description]`, `[cv_and_resume]`),
 - model `[[S1]]` tokens rewritten to `[1]`, `[2]`, … in source order,
-- a `Sumber` / `Sources` ordered list appended by the analyzer (not the model):
+- a `Sumber` or `Sources` ordered list appended by the analyzer (not the model):
   document items use the provided file title (form question text), and
   external items use the source URL,
 - safe to render and store as-is.
-- translations of the same verdict; `analysis` is Indonesian and `analysis_en`
-  is English. The source list headings differ (`Sumber` / `Sources`); item
-  labels are the same in both languages.
+
+Indonesian and English analyses are independent requests. The worker may send
+different files for each language and must not assume one response contains a
+translation of the other.
 
 `sources` and `warnings` are supplementary metadata and may be ignored by the
 worker.
@@ -124,8 +125,8 @@ Classify by **HTTP status code first**; `errors[0]` provides the stable code.
 | Code                         | Status | Meaning                                                    |
 |------------------------------|--------|------------------------------------------------------------|
 | `missing_files`              | 400    | No file parts were uploaded.                               |
-| `file_count_exceeded`        | 400    | More than the allowed number of files.                     |
 | `invalid_job_posting_id`      | 400    | `job_posting_id` is not a UUID.                            |
+| `invalid_language`            | 400    | `language` is not `id` or `en`.                            |
 | `file_size_exceeded`         | 413    | A single file exceeds the per-file limit.                  |
 | `total_size_exceeded`        | 413    | Combined upload exceeds the total limit.                   |
 | `request_size_exceeded`       | 413    | Request body exceeds the gateway limit.                   |
@@ -148,7 +149,7 @@ Classify by **HTTP status code first**; `errors[0]` provides the stable code.
 | `llm_unavailable`                  | 502    | LLM provider is temporarily unavailable / rate-limited.|
 | `llm_provider_error`              | 502    | LLM provider returned an error.                        |
 | `llm_empty_response`              | 502    | LLM provider returned an empty response.              |
-| `llm_invalid_response`            | 502    | LLM output was not valid bilingual HTML.              |
+| `llm_invalid_response`            | 502    | LLM output was not valid non-empty HTML.               |
 | `llm_authentication_failed`        | 502    | LLM credentials rejected (operator action needed; 5xx).|
 | `internal_server_error`            | 500    | Unhandled analyzer error.                              |
 | *(any other 5xx)*                 | 5xx    | Treat as retryable.                                    |

@@ -19,7 +19,6 @@ class Settings(BaseSettings):
         "https://apidev-hrms.duluin.com/api/proxy/v3/employees/job-posting"
     )
 
-    cv_max_files: int = Field(default=3, ge=1, le=10)
     cv_max_file_size_bytes: int = Field(default=10_485_760, ge=1)
     cv_max_total_size_bytes: int = Field(default=20_971_520, ge=1)
     cv_max_pages: int = Field(default=100, ge=1)

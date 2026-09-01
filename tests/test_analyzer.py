@@ -21,13 +21,9 @@ class FakeLLM:
     ) -> str:
         self.calls += 1
         self.max_tokens = max_tokens
-        return json.dumps(
-            {
-                "id": "Kandidat cukup sesuai berdasarkan [[S1]].",
-                "en": "The candidate is a moderate fit based on [[S1]].",
-            },
-            ensure_ascii=False,
-        )
+        if "bahasa Inggris" in system:
+            return "The candidate is a moderate fit based on [[S1]]."
+        return "Kandidat cukup sesuai berdasarkan [[S1]]."
 
 
 class NoopEnricher:
@@ -46,7 +42,6 @@ class FakeJobPostingClient:
 
 def settings(**overrides):
     values = {
-        "cv_max_files": 3,
         "cv_max_file_size_bytes": 1_000_000,
         "cv_max_total_size_bytes": 2_000_000,
         "cv_max_pages": 10,
@@ -209,53 +204,55 @@ def test_summary_normalizes_model_markdown_to_simple_html():
 
 
 def test_analysis_prompt_requires_html_and_forbids_markdown():
-    prompt = CVAnalyzer._analysis_prompt()
+    indonesian_prompt = CVAnalyzer._analysis_prompt()
+    english_prompt = CVAnalyzer._analysis_prompt("en")
 
-    assert "SATU objek JSON" in prompt
-    assert "tanpa Markdown" in prompt
-    assert "<p><b>Status Kesesuaian:</b>" in prompt
-    assert "Kualifikasi: Berlebih / Kurang / Sesuai" in prompt
-    assert "Heading en: Fit," in prompt
-    assert "Qualification: Overqualified / Underqualified / Just right." in prompt
-    assert "akumulasi tahun pengalaman kerja" in prompt
-    assert "jika disebutkan" in prompt
-    assert "jangan mengarang ambang tahun" in prompt
-    assert "Jangan melebihi 300 kata per bahasa" in prompt
-    assert "Tiga poin substantif" in prompt
-    assert "dampak pengalaman" in prompt
-    assert "<p><b>Rekomendasi untuk HR:</b>" in prompt
-    assert "Pertanyaan Wawancara yang Disarankan" not in prompt
-    assert "token sumber seperti [[S1]]" in prompt
-    assert "token dokumen" in prompt
-    assert "tidak membuktikan pengalaman kerja" in prompt
-    assert "tanyakan waktu mulai yang diinginkan secara netral" in prompt
-    assert "Jangan mengaitkan teknologi proyek dengan pengalaman kerja" in prompt
-    assert "bukan membuktikan kemahiran atau kualitas" in prompt
-    assert "Manifest hanya menunjukkan dependensi dan skrip" in prompt
-    assert "satu alasan singkat [[S1]]" in prompt
-    assert "Persyaratan di JOB DESCRIPTION bukan bukti pengalaman kandidat" in prompt
-    assert "Hindari kata menguasai" in prompt
-    assert "jangan membuat token baru" in prompt
-    assert "data tidak tepercaya" in prompt
+    assert "SATU fragmen HTML tanpa JSON dan tanpa Markdown" in indonesian_prompt
+    assert "bahasa Indonesia" in indonesian_prompt
+    assert "<p><b>Status Kesesuaian:</b>" in indonesian_prompt
+    assert "Kualifikasi: Berlebih / Kurang / Sesuai" in indonesian_prompt
+    assert "bahasa Inggris" in english_prompt
+    assert "<p><b>Fit:</b>" in english_prompt
+    assert "Qualification: Overqualified / Underqualified / Just right" in english_prompt
+    assert "akumulasi tahun pengalaman kerja" in indonesian_prompt
+    assert "jika disebutkan" in indonesian_prompt
+    assert "jangan mengarang ambang tahun" in indonesian_prompt
+    assert "Jangan melebihi 300 kata" in indonesian_prompt
+    assert "Tiga poin substantif" in indonesian_prompt
+    assert "dampak pengalaman" in indonesian_prompt
+    assert "<p><b>Rekomendasi untuk HR:</b>" in indonesian_prompt
+    assert "Pertanyaan Wawancara yang Disarankan" not in indonesian_prompt
+    assert "token sumber seperti [[S1]]" in indonesian_prompt
+    assert "token dokumen" in indonesian_prompt
+    assert "tidak membuktikan pengalaman kerja" in indonesian_prompt
+    assert "tanyakan waktu mulai yang diinginkan secara netral" in indonesian_prompt
+    assert "Jangan mengaitkan teknologi proyek dengan pengalaman kerja" in indonesian_prompt
+    assert "bukan membuktikan kemahiran atau kualitas" in indonesian_prompt
+    assert "Manifest hanya menunjukkan dependensi dan skrip" in indonesian_prompt
+    assert "satu alasan singkat [[S1]]" in indonesian_prompt
+    assert "Persyaratan di JOB DESCRIPTION bukan bukti pengalaman kandidat" in indonesian_prompt
+    assert "Hindari kata menguasai" in indonesian_prompt
+    assert "jangan membuat token baru" in indonesian_prompt
+    assert "data tidak tepercaya" in indonesian_prompt
 
 
-def test_bilingual_summary_accepts_fenced_json_and_rejects_missing_language():
-    prepared = CVAnalyzer._prepare_bilingual_summary(
-        """```json
-{"id": "Kandidat cukup sesuai [document:0].", "en": "Moderate fit [document:0]."}
+def test_analysis_accepts_fenced_html_and_rejects_empty_response():
+    prepared = CVAnalyzer._prepare_analysis(
+        """```html
+<p>Kandidat cukup sesuai [document:0].</p>
 ```"""
     )
-    assert prepared == ("Kandidat cukup sesuai.", "Moderate fit.")
+    assert prepared == "<p>Kandidat cukup sesuai.</p>"
 
     try:
-        CVAnalyzer._prepare_bilingual_summary('{"id": "Hanya Indonesia."}')
+        CVAnalyzer._prepare_analysis("   ")
     except UpstreamError as exc:
         assert exc.code == "llm_invalid_response"
     else:
         raise AssertionError("expected llm_invalid_response")
 
 
-def test_bilingual_summary_resolves_trusted_source_tokens_without_rejecting_gaps():
+def test_analysis_resolves_trusted_source_tokens_without_rejecting_gaps():
     sources = [
         {
             "id": "document:0",
@@ -276,30 +273,18 @@ def test_bilingual_summary_resolves_trusted_source_tokens_without_rejecting_gaps
             "title": "candidate/other",
         },
     ]
-    raw = json.dumps(
-        {
-            "id": (
-                "<ul><li>Pengalaman produksi [[S1]].</li>"
-                "<li>Proyek publik [[S2]][[S3]] [[S99]] https://example.com/invented.</li></ul>"
-            ),
-            "en": (
-                "<ul><li>Production experience [[S1]].</li>"
-                "<li>Public project [[S2]][[S3]] [[S99]] https://example.com/invented.</li></ul>"
-            ),
-        }
+    raw = (
+        "<ul><li>Pengalaman produksi [[S1]].</li>"
+        "<li>Proyek publik [[S2]][[S3]] [[S99]] https://example.com/invented.</li></ul>"
     )
 
-    indonesian, english = CVAnalyzer._prepare_bilingual_summary(raw, sources)
+    summary = CVAnalyzer._prepare_analysis(raw, sources)
 
-    assert "Pengalaman produksi [1]." in indonesian
-    assert "Production experience [1]." in english
-    assert "Proyek publik [2] [3]." in indonesian
-    assert "Public project [2] [3]." in english
-    assert "https://github.com/candidate/project" not in indonesian
-    assert "S99" not in indonesian
-    assert "S99" not in english
-    assert "example.com" not in indonesian
-    assert "example.com" not in english
+    assert "Pengalaman produksi [1]." in summary
+    assert "Proyek publik [2] [3]." in summary
+    assert "https://github.com/candidate/project" not in summary
+    assert "S99" not in summary
+    assert "example.com" not in summary
 
 
 def test_summary_repairs_stray_list_closing_tag_after_heading():
@@ -409,9 +394,7 @@ def test_file_titles_are_used_as_document_source_titles():
     assert result.sources[0].title == "Kirimkan CVmu"
     assert "<li>[1] Kirimkan CVmu</li>" in result.analysis
     assert "<b>Sumber:</b>" in result.analysis
-    assert "<b>Sources:</b>" in result.analysis_en
     assert "[CV" not in result.analysis
-    assert "[Resume]" not in result.analysis_en
 
 
 def test_external_evidence_input_identifies_sources_by_url():
@@ -476,8 +459,8 @@ def test_repository_evidence_is_required_in_llm_input():
 def test_analysis_prompt_targets_thorough_but_evidence_bound_output():
     prompt = CVAnalyzer._analysis_prompt()
 
-    assert "270-300 kata per bahasa" in prompt
-    assert "Jangan melebihi 300 kata per bahasa" in prompt
+    assert "270-300 kata" in prompt
+    assert "Jangan melebihi 300 kata" in prompt
     assert "Tiga poin substantif" in prompt
     assert "Jangan menambah pengulangan atau spekulasi" in prompt
 
@@ -491,12 +474,7 @@ def test_missing_repository_citation_warns_without_retrying():
             self, system: str, user: str, *, max_tokens: int | None = None
         ) -> str:
             self.calls += 1
-            return json.dumps(
-                {
-                    "id": "Kandidat sesuai [[S1]].",
-                    "en": "The candidate fits [[S1]].",
-                }
-            )
+            return "Kandidat sesuai [[S1]]."
 
     class RepositoryGithub:
         async def fetch(self, url: str):
@@ -635,14 +613,12 @@ def test_analyzer_returns_narrative_and_closes_upload():
 
     assert result.job_posting_id == job_posting_id
     assert result.job_title == "Backend Engineer"
+    assert result.language == "id"
     assert "cukup sesuai" in result.analysis
-    assert "moderate fit" in result.analysis_en
     assert "[document:0]" not in result.analysis
-    assert "[document:0]" not in result.analysis_en
     assert result.sources[0].id == "document:0"
     assert "<b>Sumber:</b>" in result.analysis
     assert "<li>[1] candidate.pdf</li>" in result.analysis
-    assert "<b>Sources:</b>" in result.analysis_en
     assert "Analysis completed without supported source citations" not in result.warnings
     assert service.llm.calls == 1
     assert service.llm.max_tokens == service.settings.llm_max_output_tokens
