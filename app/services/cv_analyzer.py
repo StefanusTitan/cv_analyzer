@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import UploadFile
 
 from app.core.errors import AnalysisError, UploadError, UpstreamError
-from app.schemas.cv import AnalyzeResult
+from app.schemas.cv import AnalyzeResult, Rating, TokenEstimation
 from app.services.document_extractor import detect_kind, extract
 from app.utils.log import logger
 from app.utils.urls import (
@@ -467,6 +467,9 @@ class CVAnalyzer:
                 if returned_citations.difference(supported_citations):
                     warnings.append("Unsupported source citations were omitted")
                 completed_at = time.perf_counter()
+                score = self._extract_score(raw_analysis)
+                rating = Rating(score=score, scale=100) if score is not None else None
+                tokens = self._estimate_tokens(system_prompt, user_prompt, raw_analysis)
                 logger.bind(
                     request_id=request_id,
                     component="analyze",
@@ -504,6 +507,9 @@ class CVAnalyzer:
                     job_title=job_title,
                     language=language,
                     analysis=analysis,
+                    rating=rating,
+                    score=score,
+                    tokens=tokens,
                     sources=response_sources,
                     warnings=warnings,
                 )
@@ -822,6 +828,18 @@ class CVAnalyzer:
             summary,
         )
         summary = re.sub(
+            r"<p>\s*<b>\s*(?:Skor(?: Kesesuaian)?|Fit Score|Score|Rating)\s*:\s*</b>\s*\d{1,3}\s*(?:/\s*100)?\s*</p>",
+            "",
+            summary,
+            flags=re.IGNORECASE,
+        )
+        summary = re.sub(
+            r"<b>\s*(?:Skor(?: Kesesuaian)?|Fit Score|Score|Rating)\s*:\s*</b>\s*\d{1,3}\s*(?:/\s*100)?\.?\s*",
+            "",
+            summary,
+            flags=re.IGNORECASE,
+        )
+        summary = re.sub(
             r"</b></(ul|ol)><\1>", r"</b></p><\1>", summary, flags=re.IGNORECASE
         )
         summary = re.sub(r"\s+([,.;:!?])", r"\1", summary)
@@ -1036,10 +1054,48 @@ class CVAnalyzer:
         return "\n".join(lines)
 
     @staticmethod
+    def _extract_score(text: str) -> int | None:
+        if not text:
+            return None
+        clean_text = re.sub(r"<[^>]+>", " ", text)
+        match = re.search(
+            r"\b(?:Skor(?: Kesesuaian)?|Fit Score|Score|Rating)\s*:\s*(\d{1,3})\b(?:\s*/\s*100)?",
+            clean_text,
+            re.IGNORECASE,
+        )
+        if match:
+            try:
+                val = int(match.group(1))
+                if 0 <= val <= 100:
+                    return val
+            except ValueError:
+                pass
+        return None
+
+    @staticmethod
+    def _estimate_tokens(
+        system_prompt: str,
+        user_prompt: str,
+        output_text: str | None = None,
+    ) -> TokenEstimation:
+        input_chars = len(system_prompt) + len(user_prompt)
+        input_tokens = max(1, int((input_chars + 3) // 3.8))
+        if output_text and output_text.strip():
+            output_tokens = max(1, int((len(output_text.strip()) + 3) // 3.8))
+        else:
+            output_tokens = 380
+        return TokenEstimation(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=input_tokens + output_tokens,
+        )
+
+    @staticmethod
     def _analysis_prompt(language: str = "id") -> str:
         target_language = "bahasa Indonesia" if language == "id" else "bahasa Inggris"
         structure = (
             "<p><b>Status Kesesuaian:</b> Kuat / Sedang / Lemah. "
+            "<b>Skor:</b> [0-100]/100. "
             "Kualifikasi: Berlebih / Kurang / Sesuai — satu alasan singkat [[S1]].</p>"
             "<p><b>Alasan Kandidat Cocok:</b></p>"
             "<ul><li>Tiga poin substantif; dua sampai tiga kalimat per poin [[S1]].</li></ul>"
@@ -1050,6 +1106,7 @@ class CVAnalyzer:
             if language == "id"
             else
             "<p><b>Fit:</b> Strong / Moderate / Weak. "
+            "<b>Score:</b> [0-100]/100. "
             "Qualification: Overqualified / Underqualified / Just right — one brief reason [[S1]].</p>"
             "<p><b>Why they fit:</b></p>"
             "<ul><li>Three substantive points; two to three sentences per point [[S1]].</li></ul>"
@@ -1071,6 +1128,8 @@ class CVAnalyzer:
             "<p>, <b>, <i>, <ul>, <ol>, <li> "
             "tanpa atribut. Jangan memakai tag lain seperti <a>; tulis URL sebagai teks biasa. "
             f"Gunakan struktur berikut:\n{structure}\n"
+            "Berikan Skor / Score dari 0 hingga 100 berdasarkan seberapa baik kualifikasi, keterampilan, "
+            "dan pengalaman kandidat memenuhi persyaratan pada JOB TITLE dan JOB DESCRIPTION. "
             "Pada Status Kesesuaian / Fit, tentukan apakah kandidat kualifikasi berlebih, "
             "kurang, atau sesuai. Hitung akumulasi tahun pengalaman kerja dari CV dan "
             "bandingkan dengan persyaratan tahun atau tingkat pengalaman di JOB DESCRIPTION "

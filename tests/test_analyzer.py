@@ -1165,3 +1165,65 @@ def test_linkedin_urls_are_not_sent_to_scraper():
     assert linkedin_source.kind == "profile"
     assert linkedin_source.access_status == "restricted"
     assert service.llm.calls == 1
+
+
+def test_score_extraction_from_various_formats():
+    assert CVAnalyzer._extract_score("<p><b>Status Kesesuaian:</b> Kuat. <b>Skor:</b> 85/100.</p>") == 85
+    assert CVAnalyzer._extract_score("<p><b>Score:</b> 92/100</p>") == 92
+    assert CVAnalyzer._extract_score("<p><b>Skor Kesesuaian:</b> 70/100</p>") == 70
+    assert CVAnalyzer._extract_score("<p><b>Fit Score:</b> 65/100</p>") == 65
+    assert CVAnalyzer._extract_score("<p>No score mentioned</p>") is None
+
+
+def test_token_estimation():
+    estimation = CVAnalyzer._estimate_tokens("System prompt here", "User prompt here", "Output text here")
+    assert estimation.input_tokens > 0
+    assert estimation.output_tokens > 0
+    assert estimation.total_tokens == estimation.input_tokens + estimation.output_tokens
+
+
+def test_analysis_includes_score_and_tokens():
+    class ScoredLLM:
+        def __init__(self):
+            self.calls = 0
+
+        async def text_completion(self, system: str, user: str, *, max_tokens: int | None = None):
+            self.calls += 1
+            return (
+                "<p><b>Status Kesesuaian:</b> Kuat. <b>Skor:</b> 90/100. "
+                "Kualifikasi: Sesuai — kandidat sangat relevan [[S1]].</p>"
+                "<p><b>Alasan Kandidat Cocok:</b></p>"
+                "<ul><li>Kandidat memiliki pengalaman yang solid [[S1]].</li></ul>"
+                "<p><b>Hal yang Perlu Dipastikan:</b></p>"
+                "<ul><li>Konfirmasi kesiapan mulai kerja.</li></ul>"
+                "<p><b>Rekomendasi untuk HR:</b> Lanjutkan ke tahap wawancara.</p>"
+            )
+
+    data = Pdf.from_text("Software Engineer with 5 years experience").to_bytes()
+    upload = UploadFile(filename="cv.pdf", file=io.BytesIO(data))
+    service = CVAnalyzer(
+        settings(),
+        ScoredLLM(),
+        NoopEnricher(),
+        NoopEnricher(),
+        NoopEnricher(),
+        NoopEnricher(),
+        NoopEnricher(),
+        NoopEnricher(),
+        FakeJobPostingClient(),
+    )
+
+    result = asyncio.run(
+        service.analyze("32a594ac-9e1b-4a9e-a3be-6e6ca87db8ff", [upload])
+    )
+
+    assert result.rating is not None
+    assert result.rating.score == 90
+    assert result.rating.scale == 100
+    assert result.score == 90
+    assert result.tokens is not None
+    assert result.tokens.input_tokens > 0
+    assert result.tokens.output_tokens > 0
+    assert result.tokens.total_tokens == result.tokens.input_tokens + result.tokens.output_tokens
+    assert "90/100" not in result.analysis
+
