@@ -104,6 +104,7 @@ class FakeJobPostingClient:
             id=job_posting_id,
             title="Backend Engineer",
             description="Build reliable Python APIs.",
+            other_job_titles=("Python Developer",),
         )
 
 
@@ -117,6 +118,7 @@ def default_posting(job_posting_id: str = JOB_POSTING_ID) -> SimpleNamespace:
         id=job_posting_id,
         title="Backend Engineer",
         description="Build reliable Python APIs.",
+        other_job_titles=("Python Developer",),
     )
 
 

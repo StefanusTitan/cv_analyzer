@@ -21,6 +21,7 @@ class FakeLLM:
     ) -> str:
         self.calls += 1
         self.max_tokens = max_tokens
+        self.user_prompt = user
         if "bahasa Inggris" in system:
             return "The candidate is a moderate fit based on [[S1]]."
         return "Kandidat cukup sesuai berdasarkan [[S1]]."
@@ -37,6 +38,7 @@ class FakeJobPostingClient:
             id=job_posting_id,
             title="Backend Engineer",
             description="Build reliable Python APIs.",
+            other_job_titles=("Python Developer",),
         )
 
 
@@ -694,6 +696,7 @@ def test_analyzer_returns_narrative_and_closes_upload():
     assert "Analysis completed without supported source citations" not in result.warnings
     assert service.llm.calls == 1
     assert service.llm.max_tokens == service.settings.llm_max_output_tokens
+    assert '["Python Developer"]' in service.llm.user_prompt
     assert upload.file.closed
 
 
@@ -1227,3 +1230,39 @@ def test_analysis_includes_score_and_tokens():
     assert result.tokens.total_tokens == result.tokens.input_tokens + result.tokens.output_tokens
     assert "90/100" not in result.analysis
 
+
+
+def test_analysis_input_and_prompt_include_distinct_title_suggestions():
+    titles = ("Python Developer", "API Engineer")
+    evidence = CVAnalyzer._format_llm_input("job-id", "Backend Engineer", "APIs", "CV", [], titles)
+    assert '=== OTHER AVAILABLE JOB TITLES ===\n["Python Developer", "API Engineer"]' in evidence
+    for language, label in [("en", "Other suitable roles:"), ("id", "Posisi lain yang sesuai:")]:
+        prompt = CVAnalyzer._analysis_prompt(language)
+        assert f"<p><b>{label}</b>" in prompt
+        assert "jangan terjemahkan atau ciptakan posisi baru" in prompt
+        assert "Tampilkan hanya nama posisi" in prompt
+        assert "tanpa alasan, penjelasan" in prompt
+        assert "jangan sisipkan karakter Han/CJK" in prompt
+
+
+def test_analysis_filters_literal_and_encoded_chinese_characters():
+    raw = (
+        "<p><b>Rekomendasi untuk HR:</b> Ketidaksesuaian履历 yang fundamental. "
+        "Pengalaman&#x5C65;&#21382; relevan. Cocok\U00020000 untuk API [[S1]]. "
+        "R&amp;D, caf&#233;, C++, dan C#.</p>"
+    )
+    result = CVAnalyzer._prepare_analysis(raw, [{"type": "document"}])
+    assert result == (
+        "<p><b>Rekomendasi untuk HR:</b> Ketidaksesuaian yang fundamental. "
+        "Pengalaman relevan. Cocok untuk API [1]. "
+        "R&amp;D, caf&#233;, C++, dan C#.</p>"
+    )
+
+
+def test_analysis_rejects_output_with_only_chinese_prose():
+    try:
+        CVAnalyzer._prepare_analysis("<p>候选人适合这个职位</p>")
+    except UpstreamError as exc:
+        assert exc.code == "llm_invalid_response"
+    else:
+        raise AssertionError("expected llm_invalid_response")
